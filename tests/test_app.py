@@ -5,8 +5,8 @@ from streamlit.testing.v1 import AppTest
 from src.config import validar_config
 
 
-def enviar_formulario(app):
-    app.form_submit_button[0].click().run()
+def generar_json(app):
+    app.button(key="generar_configuracion").click().run()
 
 
 def test_app_muestra_formulario_y_resultados_vacios():
@@ -25,7 +25,7 @@ def test_app_muestra_formulario_y_resultados_vacios():
 
 def test_formulario_genera_configuracion_paralela_valida():
     app = AppTest.from_file("../src/app.py", default_timeout=15).run()
-    enviar_formulario(app)
+    generar_json(app)
 
     config = json.loads(app.json[0].value)
     assert config["simulacion"]["metodo"] == "paralelo"
@@ -49,7 +49,7 @@ def test_formulario_genera_servicios_individuales_y_colas_multiples():
     app = AppTest.from_file("../src/app.py", default_timeout=15).run()
     app.selectbox(key="estacion_1_servidor_2_tipo").select("Uniforme")
     app.selectbox(key="estacion_1_tipo_cola").select("Múltiple")
-    enviar_formulario(app)
+    generar_json(app)
 
     config = json.loads(app.json[0].value)
     assert config["estaciones"][0]["servidores"][1]["servicio"] == {
@@ -61,10 +61,37 @@ def test_formulario_genera_servicios_individuales_y_colas_multiples():
     assert validar_config(config) == []
 
 
+def test_cantidad_colas_multiples_sigue_a_los_servidores():
+    app = AppTest.from_file("../src/app.py", default_timeout=15).run()
+    app.selectbox(key="estacion_1_tipo_cola").select("Múltiple").run()
+    assert app.selectbox(key="estacion_1_reparticion")
+    generar_json(app)
+
+    app.number_input(key="estacion_1_servidores").set_value(2).run()
+    assert any(caption.value == "Colas: 2 (una por servidor)" for caption in app.caption)
+    generar_json(app)
+
+    config = json.loads(app.json[0].value)
+    assert config["estaciones"][0]["colas"]["cantidad"] == 2
+    assert validar_config(config) == []
+    assert not app.error
+
+
+def test_campos_dependientes_se_actualizan_sin_generar_json():
+    app = AppTest.from_file("../src/app.py", default_timeout=15).run()
+    app.selectbox(key="estacion_1_servidor_2_tipo").select("Uniforme").run()
+
+    assert app.number_input(key="estacion_1_servidor_2_min")
+    assert app.number_input(key="estacion_1_servidor_2_max")
+
+    app.selectbox(key="estacion_1_tipo_cola").select("Preferencial").run()
+    assert app.number_input(key="proporcion_preferencial")
+
+
 def test_formulario_genera_configuracion_secuencial_valida():
     app = AppTest.from_file("../src/app.py", default_timeout=15).run()
     app.selectbox(key="metodo").select("Método 2 (secuencial)")
-    enviar_formulario(app)
+    generar_json(app)
 
     config = json.loads(app.json[0].value)
     assert config["simulacion"]["metodo"] == "secuencial"
@@ -80,14 +107,14 @@ def test_formulario_genera_configuracion_secuencial_valida():
 def test_formulario_genera_rutas_secuenciales_ramificadas():
     app = AppTest.from_file("../src/app.py", default_timeout=15).run()
     app.selectbox(key="metodo").select("Método 2 (secuencial)")
-    enviar_formulario(app)
+    generar_json(app)
     app.number_input(key="cantidad_estaciones").set_value(3)
-    enviar_formulario(app)
+    generar_json(app)
     app.get("multiselect")[0].select("estacion_3")
-    enviar_formulario(app)
+    generar_json(app)
     app.number_input(key="probabilidad_0_atencion").set_value(0.6)
     app.number_input(key="probabilidad_0_estacion_3").set_value(0.4)
-    enviar_formulario(app)
+    generar_json(app)
 
     config = json.loads(app.json[0].value)
     assert config["estaciones"][0]["salidas"] == [
@@ -100,7 +127,7 @@ def test_formulario_genera_rutas_secuenciales_ramificadas():
 def test_formulario_ubica_proporcion_preferencial_en_simulacion():
     app = AppTest.from_file("../src/app.py", default_timeout=15).run()
     app.selectbox(key="estacion_1_tipo_cola").select("Preferencial")
-    enviar_formulario(app)
+    generar_json(app)
 
     config = json.loads(app.json[0].value)
     assert config["simulacion"]["clientes_preferenciales"] == {"proporcion": 0.2}
@@ -111,6 +138,6 @@ def test_formulario_ubica_proporcion_preferencial_en_simulacion():
 def test_formulario_muestra_errores_del_validador():
     app = AppTest.from_file("../src/app.py", default_timeout=15).run()
     app.text_input(key="estacion_1_id").set_value("")
-    enviar_formulario(app)
+    generar_json(app)
 
     assert any("estaciones[0].id" in error.value for error in app.error)

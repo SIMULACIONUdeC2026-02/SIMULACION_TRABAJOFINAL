@@ -10,6 +10,7 @@ TIPOS_COLA = {"Única": "unica", "Múltiple": "multiple", "Preferencial": "prefe
 
 
 def _capturar_servicio(prefijo: str, numero: int) -> dict:
+    """Captura la distribución de servicio configurada para un servidor."""
     tipo = st.selectbox(
         f"Servicio del servidor {numero}",
         ["Exponencial", "Uniforme"],
@@ -68,16 +69,14 @@ def configurar_estacion(etiqueta: str, prefijo: str, id_por_defecto: str) -> dic
     tipo_cola = TIPOS_COLA[tipo_cola_ui]
     reparticion = None
     if tipo_cola == "multiple":
-        cantidad_colas = int(st.number_input(
-            "Número de colas",
-            min_value=2,
-            value=max(2, cantidad_servidores),
-            step=1,
-            disabled=cantidad_servidores > 1,
-            help=("Con varios servidores se usa una cola por servidor."
-                  if cantidad_servidores > 1 else None),
-            key=f"{prefijo}_cantidad_colas",
-        ))
+        if cantidad_servidores > 1:
+            cantidad_colas = cantidad_servidores
+            st.caption(f"Colas: {cantidad_colas} (una por servidor)")
+        else:
+            cantidad_colas = int(st.number_input(
+                "Número de colas", min_value=2, value=2, step=1,
+                key=f"{prefijo}_cantidad_colas",
+            ))
         reparticion = st.selectbox(
             "Repartición de clientes",
             ["round_robin", "aleatoria", "mas_corta"],
@@ -177,13 +176,11 @@ def mostrar_resultados() -> None:
         st.subheader("Comparación de colas")
         st.plotly_chart(
             go.Figure().update_layout(xaxis_title="Cola", yaxis_title="Longitud máxima"),
-            width="stretch",
         )
     with servidores:
         st.subheader("Utilización por servidor")
         st.plotly_chart(
             go.Figure().update_layout(xaxis_title="Servidor", yaxis_title="Utilización (%)"),
-            width="stretch",
         )
 
 
@@ -195,62 +192,59 @@ def main() -> None:
 
     with configuracion_tab:
         st.caption("Los tiempos se expresan en minutos y la tasa de llegada en clientes por hora.")
-        with st.form("formulario_configuracion"):
-            st.subheader("Datos de la simulación")
-            nombre = st.text_input("Nombre de la simulación", value="", key="nombre_simulacion")
-            metodo_ui = st.selectbox(
-                "Método", ["Método 1 (paralelo)", "Método 2 (secuencial)"], key="metodo"
+        st.subheader("Datos de la simulación")
+        nombre = st.text_input("Nombre de la simulación", value="", key="nombre_simulacion")
+        metodo_ui = st.selectbox(
+            "Método", ["Método 1 (paralelo)", "Método 2 (secuencial)"], key="metodo"
+        )
+        col_duracion, col_semilla, col_llegadas = st.columns(3)
+        duracion = col_duracion.number_input("Duración (min)", min_value=1, value=480, step=1)
+        semilla = col_semilla.number_input("Semilla", min_value=0, value=42, step=1)
+        llegadas = col_llegadas.number_input(
+            "Llegadas por hora", min_value=0.1, value=40.0, step=1.0
+        )
+
+        metodo = "paralelo" if metodo_ui == "Método 1 (paralelo)" else "secuencial"
+        cantidad_estaciones = 1
+        if metodo == "secuencial":
+            cantidad_estaciones = int(st.number_input(
+                "Número de estaciones", min_value=2, value=2, step=1,
+                key="cantidad_estaciones",
+            ))
+
+        estaciones = []
+        for indice in range(cantidad_estaciones):
+            if indice == 0:
+                id_default = "cajeros"
+            elif indice == 1:
+                id_default = "atencion"
+            else:
+                id_default = f"estacion_{indice + 1}"
+            nombre_estacion = f"Estación {indice + 1}"
+            estaciones.append(configurar_estacion(
+                nombre_estacion, f"estacion_{indice + 1}", id_default
+            ))
+
+        estacion_entrada = None
+        if metodo == "secuencial":
+            configurar_salidas(estaciones)
+            ids = [estacion["id"] for estacion in estaciones]
+            estacion_entrada = st.selectbox(
+                "Estación de entrada", ids, key="estacion_entrada"
             )
-            col_duracion, col_semilla, col_llegadas = st.columns(3)
-            duracion = col_duracion.number_input("Duración (min)", min_value=1, value=480, step=1)
-            semilla = col_semilla.number_input("Semilla", min_value=0, value=42, step=1)
-            llegadas = col_llegadas.number_input(
-                "Llegadas por hora", min_value=0.1, value=40.0, step=1.0
+
+        proporcion_preferencial = None
+        if any(estacion["colas"]["tipo"] == "preferencial" for estacion in estaciones):
+            proporcion_preferencial = st.number_input(
+                "Proporción de clientes preferenciales",
+                min_value=0.01,
+                max_value=0.99,
+                value=0.2,
+                step=0.05,
+                key="proporcion_preferencial",
             )
 
-            metodo = "paralelo" if metodo_ui == "Método 1 (paralelo)" else "secuencial"
-            cantidad_estaciones = 1
-            if metodo == "secuencial":
-                cantidad_estaciones = int(st.number_input(
-                    "Número de estaciones", min_value=2, value=2, step=1,
-                    key="cantidad_estaciones",
-                ))
-
-            estaciones = []
-            for indice in range(cantidad_estaciones):
-                if indice == 0:
-                    id_default = "cajeros"
-                elif indice == 1:
-                    id_default = "atencion"
-                else:
-                    id_default = f"estacion_{indice + 1}"
-                nombre_estacion = f"Estación {indice + 1}"
-                estaciones.append(configurar_estacion(
-                    nombre_estacion, f"estacion_{indice + 1}", id_default
-                ))
-
-            estacion_entrada = None
-            if metodo == "secuencial":
-                configurar_salidas(estaciones)
-                ids = [estacion["id"] for estacion in estaciones]
-                estacion_entrada = st.selectbox(
-                    "Estación de entrada", ids, key="estacion_entrada"
-                )
-
-            proporcion_preferencial = None
-            if any(estacion["colas"]["tipo"] == "preferencial" for estacion in estaciones):
-                proporcion_preferencial = st.number_input(
-                    "Proporción de clientes preferenciales",
-                    min_value=0.01,
-                    max_value=0.99,
-                    value=0.2,
-                    step=0.05,
-                    key="proporcion_preferencial",
-                )
-
-            generar = st.form_submit_button("Generar JSON", key="generar_configuracion")
-
-        if generar:
+        if st.button("Generar JSON", key="generar_configuracion"):
             config = construir_config(
                 nombre, metodo, duracion, semilla, llegadas, estaciones,
                 estacion_entrada, proporcion_preferencial,
