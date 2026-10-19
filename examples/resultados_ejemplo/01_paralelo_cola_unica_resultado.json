@@ -1,0 +1,175 @@
+{
+  "resultado": {
+    "simulacion_id": "ejemplo_01_paralelo_cola_unica",
+    "duracion_total_minutos": 20,
+    "eventos_clientes": [
+      {
+        "cliente_id": 1,
+        "es_preferencial": false,
+        "tiempo_entrada_sistema": 0,
+        "tiempo_salida_sistema": 5,
+        "paradas": [
+          {
+            "estacion_id": "cajeros",
+            "tiempo_inicio_espera": 0,
+            "tiempo_inicio_servicio": 0,
+            "tiempo_fin_servicio": 5,
+            "servidor_asignado": 1,
+            "cola_asignada": 1
+          }
+        ]
+      },
+      {
+        "cliente_id": 2,
+        "es_preferencial": false,
+        "tiempo_entrada_sistema": 1,
+        "tiempo_salida_sistema": 4,
+        "paradas": [
+          {
+            "estacion_id": "cajeros",
+            "tiempo_inicio_espera": 1,
+            "tiempo_inicio_servicio": 1,
+            "tiempo_fin_servicio": 4,
+            "servidor_asignado": 2,
+            "cola_asignada": 1
+          }
+        ]
+      },
+      {
+        "cliente_id": 3,
+        "es_preferencial": false,
+        "tiempo_entrada_sistema": 2,
+        "tiempo_salida_sistema": 8,
+        "paradas": [
+          {
+            "estacion_id": "cajeros",
+            "tiempo_inicio_espera": 2,
+            "tiempo_inicio_servicio": 2,
+            "tiempo_fin_servicio": 8,
+            "servidor_asignado": 3,
+            "cola_asignada": 1
+          }
+        ]
+      },
+      {
+        "cliente_id": 4,
+        "es_preferencial": false,
+        "tiempo_entrada_sistema": 3,
+        "tiempo_salida_sistema": 10,
+        "paradas": [
+          {
+            "estacion_id": "cajeros",
+            "tiempo_inicio_espera": 3,
+            "tiempo_inicio_servicio": 4,
+            "tiempo_fin_servicio": 10,
+            "servidor_asignado": 2,
+            "cola_asignada": 1
+          }
+        ]
+      },
+      {
+        "cliente_id": 5,
+        "es_preferencial": false,
+        "tiempo_entrada_sistema": 4,
+        "tiempo_salida_sistema": 7,
+        "paradas": [
+          {
+            "estacion_id": "cajeros",
+            "tiempo_inicio_espera": 4,
+            "tiempo_inicio_servicio": 5,
+            "tiempo_fin_servicio": 7,
+            "servidor_asignado": 1,
+            "cola_asignada": 1
+          }
+        ]
+      },
+      {
+        "cliente_id": 6,
+        "es_preferencial": false,
+        "tiempo_entrada_sistema": 6,
+        "tiempo_salida_sistema": 12,
+        "paradas": [
+          {
+            "estacion_id": "cajeros",
+            "tiempo_inicio_espera": 6,
+            "tiempo_inicio_servicio": 7,
+            "tiempo_fin_servicio": 12,
+            "servidor_asignado": 1,
+            "cola_asignada": 1
+          }
+        ]
+      },
+      {
+        "cliente_id": 7,
+        "es_preferencial": false,
+        "tiempo_entrada_sistema": 9,
+        "tiempo_salida_sistema": 11,
+        "paradas": [
+          {
+            "estacion_id": "cajeros",
+            "tiempo_inicio_espera": 9,
+            "tiempo_inicio_servicio": 9,
+            "tiempo_fin_servicio": 11,
+            "servidor_asignado": 3,
+            "cola_asignada": 1
+          }
+        ]
+      },
+      {
+        "cliente_id": 8,
+        "es_preferencial": false,
+        "tiempo_entrada_sistema": 10,
+        "tiempo_salida_sistema": 13,
+        "paradas": [
+          {
+            "estacion_id": "cajeros",
+            "tiempo_inicio_espera": 10,
+            "tiempo_inicio_servicio": 10,
+            "tiempo_fin_servicio": 13,
+            "servidor_asignado": 2,
+            "cola_asignada": 1
+          }
+        ]
+      }
+    ],
+    "metricas": {
+      "sistema_completo": {
+        "tiempo_promedio_en_sistema": 4.375,
+        "clientes_promedio_en_sistema": 1.75,
+        "clientes_totales_atendidos": 8
+      },
+      "por_estacion": {
+        "cajeros": {
+          "tiempo_promedio_espera_cola": 0.375,
+          "tiempo_promedio_atencion": 4.0,
+          "longitud_promedio_cola": 0.15,
+          "longitud_maxima_cola": 1,
+          "por_servidor": {
+            "servidor_1": {
+              "utilizacion": 0.6,
+              "tiempo_ocioso_minutos": 8.0,
+              "clientes_atendidos": 3
+            },
+            "servidor_2": {
+              "utilizacion": 0.6,
+              "tiempo_ocioso_minutos": 8.0,
+              "clientes_atendidos": 3
+            },
+            "servidor_3": {
+              "utilizacion": 0.4,
+              "tiempo_ocioso_minutos": 12.0,
+              "clientes_atendidos": 2
+            }
+          },
+          "por_cola": {
+            "cola_1": {
+              "longitud_promedio": 0.15,
+              "longitud_maxima": 1
+            }
+          },
+          "cola_mas_larga": "cola_1"
+        }
+      }
+    }
+  }
+}

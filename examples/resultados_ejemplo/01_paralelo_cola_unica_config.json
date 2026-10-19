@@ -1,0 +1,47 @@
+{
+  "simulacion": {
+    "nombre": "Ejemplo de resultado - Método 1, cola única, 3 servidores",
+    "metodo": "paralelo",
+    "duracion_minutos": 20,
+    "semilla": 42,
+    "llegada": {
+      "distribucion": "poisson",
+      "lambda_por_hora": 24
+    }
+  },
+  "estaciones": [
+    {
+      "id": "cajeros",
+      "nombre": "Atención de cajeros",
+      "servidores": [
+        {
+          "id": "s1",
+          "servicio": {
+            "tipo": "exponencial",
+            "media": 4
+          }
+        },
+        {
+          "id": "s2",
+          "servicio": {
+            "tipo": "exponencial",
+            "media": 4
+          }
+        },
+        {
+          "id": "s3",
+          "servicio": {
+            "tipo": "exponencial",
+            "media": 4
+          }
+        }
+      ],
+      "colas": {
+        "tipo": "unica",
+        "cantidad": 1,
+        "reparticion": null
+      },
+      "salidas": []
+    }
+  ]
+}

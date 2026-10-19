@@ -1,0 +1,69 @@
+{
+  "simulacion": {
+    "nombre": "Ejemplo de resultado - Método 2, triaje + atención preferencial",
+    "metodo": "secuencial",
+    "duracion_minutos": 30,
+    "semilla": 7,
+    "llegada": {
+      "distribucion": "poisson",
+      "lambda_por_hora": 10
+    },
+    "clientes_preferenciales": {
+      "proporcion": 0.4
+    },
+    "estacion_entrada": "triaje"
+  },
+  "estaciones": [
+    {
+      "id": "triaje",
+      "nombre": "Triaje inicial",
+      "servidores": [
+        {
+          "id": "s1",
+          "servicio": {
+            "tipo": "uniforme",
+            "min": 1,
+            "max": 2
+          }
+        }
+      ],
+      "colas": {
+        "tipo": "unica",
+        "cantidad": 1,
+        "reparticion": null
+      },
+      "salidas": [
+        {
+          "hacia": "atencion",
+          "probabilidad": 1
+        }
+      ]
+    },
+    {
+      "id": "atencion",
+      "nombre": "Atención específica",
+      "servidores": [
+        {
+          "id": "s1",
+          "servicio": {
+            "tipo": "exponencial",
+            "media": 4
+          }
+        },
+        {
+          "id": "s2",
+          "servicio": {
+            "tipo": "exponencial",
+            "media": 4
+          }
+        }
+      ],
+      "colas": {
+        "tipo": "preferencial",
+        "cantidad": 2,
+        "reparticion": null
+      },
+      "salidas": []
+    }
+  ]
+}
