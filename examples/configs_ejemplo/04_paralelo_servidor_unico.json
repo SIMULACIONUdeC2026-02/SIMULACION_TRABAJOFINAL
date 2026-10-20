@@ -14,7 +14,7 @@
       "id": "cajeros",
       "nombre": "Atención de cajeros",
       "servidores": [
-        {"id": "s1", "servicio": {"tipo": "exponencial", "media": 2}}
+        {"id": "s1", "servicio": {"tipo": "exponencial", "media": 1}}
       ],
       "colas": {
         "tipo": "multiple",
