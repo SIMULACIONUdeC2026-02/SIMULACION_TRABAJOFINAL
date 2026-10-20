@@ -1,0 +1,32 @@
+{
+  "simulacion": {
+    "nombre": "Ejemplo - Método 1, colas múltiples, clientes preferenciales",
+    "metodo": "paralelo",
+    "duracion_minutos": 480,
+    "semilla": 42,
+    "llegada": {
+      "distribucion": "poisson",
+      "lambda_por_hora": 40
+    },
+    "clientes_preferenciales": {
+      "proporcion": 0.2
+    }
+  },
+  "estaciones": [
+    {
+      "id": "cajeros",
+      "nombre": "Atención de cajeros",
+      "servidores": [
+        {"id": "s1", "servicio": {"tipo": "exponencial", "media": 4}},
+        {"id": "s2", "servicio": {"tipo": "exponencial", "media": 4}},
+        {"id": "s3", "servicio": {"tipo": "exponencial", "media": 4}}
+      ],
+      "colas": {
+        "tipo": "preferencial",
+        "cantidad": 2,
+        "reparticion": null
+      },
+      "salidas": []
+    }
+  ]
+}

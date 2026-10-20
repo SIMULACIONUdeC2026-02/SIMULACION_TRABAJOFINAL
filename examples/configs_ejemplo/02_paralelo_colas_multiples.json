@@ -1,0 +1,29 @@
+{
+  "simulacion": {
+    "nombre": "Ejemplo - Método 1, colas múltiples, múltiples servidores",
+    "metodo": "paralelo",
+    "duracion_minutos": 480,
+    "semilla": 42,
+    "llegada": {
+      "distribucion": "poisson",
+      "lambda_por_hora": 40
+    }
+  },
+  "estaciones": [
+    {
+      "id": "cajeros",
+      "nombre": "Atención de cajeros",
+      "servidores": [
+        {"id": "s1", "servicio": {"tipo": "exponencial", "media": 4}},
+        {"id": "s2", "servicio": {"tipo": "exponencial", "media": 4}},
+        {"id": "s3", "servicio": {"tipo": "exponencial", "media": 4}}
+      ],
+      "colas": {
+        "tipo": "multiple",
+        "cantidad": 3,
+        "reparticion": "round_robin"
+      },
+      "salidas": []
+    }
+  ]
+}
