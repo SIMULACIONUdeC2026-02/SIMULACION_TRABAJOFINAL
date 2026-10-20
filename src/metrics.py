@@ -12,7 +12,13 @@ Supuestos (a confirmar con Engine, Issue #5):
 - Un cliente que sigue dentro del sistema al terminar la simulación trae
   "tiempo_salida_sistema": None. No cuenta como atendido.
 - Un servicio que no terminó trae "tiempo_fin_servicio": None.
-- Todo tiempo se recorta al intervalo [0, duracion_total_minutos].
+
+Regla de corte en T = duracion_total_minutos:
+- "Atendido" = salió del sistema dentro de la simulación (salida <= T).
+  Un cliente que sale después de T se trata igual que uno que sigue dentro:
+  no cuenta como atendido ni entra en W ni en la Ley de Little.
+- Las métricas que suman tiempo (integración de N(t), ocupación de
+  servidores) recortan cada intervalo a [0, T].
 Las fórmulas están explicadas en docs/metricas.md.
 """
 
@@ -21,18 +27,22 @@ Las fórmulas están explicadas en docs/metricas.md.
 # Auxiliares
 # --------------------------------------------------------------------------
 
-def clientes_atendidos(eventos_clientes: list[dict]) -> list[dict]:
+def clientes_atendidos(eventos_clientes: list[dict],
+                       duracion_total_minutos: float) -> list[dict]:
     """
-    Filtra los clientes que salieron del sistema.
+    Filtra los clientes que salieron del sistema antes de terminar la simulación.
 
     Args:
         eventos_clientes: lista de eventos según el contrato de salida.
+        duracion_total_minutos: duración simulada (T), mayor que 0.
 
     Returns:
-        Los clientes cuyo "tiempo_salida_sistema" no es None.
+        Los clientes cuyo "tiempo_salida_sistema" no es None y es <= T.
     """
+    _validar_duracion(duracion_total_minutos)
     return [c for c in eventos_clientes
-            if c.get("tiempo_salida_sistema") is not None]
+            if c.get("tiempo_salida_sistema") is not None
+            and c["tiempo_salida_sistema"] <= duracion_total_minutos]
 
 
 def tiempo_en_sistema(cliente: dict) -> float:
@@ -82,32 +92,38 @@ def _minutos_dentro(inicio: float, fin, duracion_total_minutos: float) -> float:
 # Sistema completo (Issues #13 y #14)
 # --------------------------------------------------------------------------
 
-def clientes_totales_atendidos(eventos_clientes: list[dict]) -> int:
+def clientes_totales_atendidos(eventos_clientes: list[dict],
+                               duracion_total_minutos: float) -> int:
     """
-    Cuenta los clientes que completaron su paso por el sistema.
+    Cuenta los clientes que completaron su paso por el sistema antes de T.
 
     Args:
         eventos_clientes: lista de eventos según el contrato de salida.
+        duracion_total_minutos: duración simulada (T), mayor que 0.
 
     Returns:
-        Número de clientes con "tiempo_salida_sistema" definido.
+        Número de clientes con "tiempo_salida_sistema" definido y <= T.
     """
-    return len(clientes_atendidos(eventos_clientes))
+    return len(clientes_atendidos(eventos_clientes, duracion_total_minutos))
 
 
-def tiempo_promedio_en_sistema(eventos_clientes: list[dict]) -> float:
+def tiempo_promedio_en_sistema(eventos_clientes: list[dict],
+                               duracion_total_minutos: float) -> float:
     """
     Tiempo promedio en el sistema (W) de los clientes atendidos.
 
-    W = promedio de (tiempo_salida_sistema - tiempo_entrada_sistema).
+    W = promedio de (tiempo_salida_sistema - tiempo_entrada_sistema) de los
+    clientes que salieron antes de T. Su tiempo no se recorta: es el tiempo
+    real que pasaron en el sistema.
 
     Args:
         eventos_clientes: lista de eventos según el contrato de salida.
+        duracion_total_minutos: duración simulada (T), mayor que 0.
 
     Returns:
-        W en minutos. 0.0 si ningún cliente salió del sistema.
+        W en minutos. 0.0 si ningún cliente salió del sistema antes de T.
     """
-    atendidos = clientes_atendidos(eventos_clientes)
+    atendidos = clientes_atendidos(eventos_clientes, duracion_total_minutos)
     if not atendidos:
         return 0.0
     return sum(tiempo_en_sistema(c) for c in atendidos) / len(atendidos)
@@ -119,7 +135,8 @@ def clientes_promedio_en_sistema(eventos_clientes: list[dict],
     Número promedio de clientes en el sistema (L) por la Ley de Little.
 
     L = λ · W, con λ = clientes atendidos / duración (clientes por minuto)
-    y W = tiempo promedio en el sistema.
+    y W = tiempo promedio en el sistema. Solo usa a los que salieron antes
+    de T (ver clientes_atendidos).
 
     Args:
         eventos_clientes: lista de eventos según el contrato de salida.
@@ -129,8 +146,10 @@ def clientes_promedio_en_sistema(eventos_clientes: list[dict],
         L (clientes). 0.0 si ningún cliente salió del sistema.
     """
     _validar_duracion(duracion_total_minutos)
-    tasa = clientes_totales_atendidos(eventos_clientes) / duracion_total_minutos
-    return tasa * tiempo_promedio_en_sistema(eventos_clientes)
+    tasa = (clientes_totales_atendidos(eventos_clientes, duracion_total_minutos)
+            / duracion_total_minutos)
+    return tasa * tiempo_promedio_en_sistema(eventos_clientes,
+                                             duracion_total_minutos)
 
 
 def clientes_promedio_por_integracion(eventos_clientes: list[dict],
@@ -140,7 +159,8 @@ def clientes_promedio_por_integracion(eventos_clientes: list[dict],
 
     L = (1 / T) · ∫ N(t) dt, sobre [0, T]. Sirve para verificar la Ley de
     Little: si todos los clientes entran y salen dentro de [0, T], coincide
-    con clientes_promedio_en_sistema. Incluye a los que no alcanzaron a salir.
+    con clientes_promedio_en_sistema. Incluye a los que no alcanzaron a salir
+    antes de T, contando solo los minutos que estuvieron dentro de [0, T].
 
     Args:
         eventos_clientes: lista de eventos según el contrato de salida.

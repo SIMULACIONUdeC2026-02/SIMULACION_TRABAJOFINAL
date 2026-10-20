@@ -57,27 +57,35 @@ def eventos_base():
 # --------------------------------------------------------------------------
 
 def test_tiempo_promedio_en_sistema_con_datos_conocidos(eventos_base):
-    assert metrics.tiempo_promedio_en_sistema(eventos_base) == pytest.approx(4.375)
+    assert metrics.tiempo_promedio_en_sistema(eventos_base, DURACION) == pytest.approx(4.375)
 
 
 def test_tiempo_promedio_de_un_solo_cliente():
     eventos = [_cliente(1, 2.3, 4.1, 9.6, 1)]
-    assert metrics.tiempo_promedio_en_sistema(eventos) == pytest.approx(7.3)
+    assert metrics.tiempo_promedio_en_sistema(eventos, DURACION) == pytest.approx(7.3)
 
 
 def test_tiempo_promedio_sin_clientes_es_cero():
-    assert metrics.tiempo_promedio_en_sistema([]) == 0.0
+    assert metrics.tiempo_promedio_en_sistema([], DURACION) == 0.0
 
 
 def test_cliente_sin_salida_no_cuenta_como_atendido(eventos_base):
     sin_salida = _cliente(9, 18, 19, None, 3)
     eventos = eventos_base + [sin_salida]
-    assert metrics.clientes_totales_atendidos(eventos) == 8
-    assert metrics.tiempo_promedio_en_sistema(eventos) == pytest.approx(4.375)
+    assert metrics.clientes_totales_atendidos(eventos, DURACION) == 8
+    assert metrics.tiempo_promedio_en_sistema(eventos, DURACION) == pytest.approx(4.375)
 
 
 def test_clientes_totales_atendidos(eventos_base):
-    assert metrics.clientes_totales_atendidos(eventos_base) == 8
+    assert metrics.clientes_totales_atendidos(eventos_base, DURACION) == 8
+
+
+def test_cliente_que_sale_despues_del_final_no_cuenta_como_atendido(eventos_base):
+    """Regla de corte: atendido = salió antes de T. El que sale en 30 (T = 20) no cuenta."""
+    sale_tarde = _cliente(9, 15, 15, 30, 1)
+    eventos = eventos_base + [sale_tarde]
+    assert metrics.clientes_totales_atendidos(eventos, DURACION) == 8
+    assert metrics.tiempo_promedio_en_sistema(eventos, DURACION) == pytest.approx(4.375)
 
 
 # --------------------------------------------------------------------------
@@ -107,7 +115,38 @@ def test_integracion_recorta_lo_que_pasa_despues_del_final():
     assert metrics.clientes_promedio_por_integracion(eventos, DURACION) == pytest.approx(5 / 20)
 
 
+def test_cliente_que_sale_despues_del_final_en_little_y_en_integracion():
+    """Caso de la revisión del PR #28: entra a los 15, sale a los 30, T = 20.
+
+    No salió antes de T, así que no es atendido: Little da 0 (nadie terminó).
+    La integración sí cuenta los 5 minutos que estuvo dentro de [0, T]: 0.25.
+    """
+    eventos = [_cliente(1, 15, 15, 30, 1)]
+    assert metrics.clientes_totales_atendidos(eventos, DURACION) == 0
+    assert metrics.tiempo_promedio_en_sistema(eventos, DURACION) == 0.0
+    assert metrics.clientes_promedio_en_sistema(eventos, DURACION) == 0.0
+    assert metrics.clientes_promedio_por_integracion(eventos, DURACION) == pytest.approx(5 / 20)
+
+
+def test_salir_despues_del_final_equivale_a_seguir_dentro(eventos_base):
+    """Salir en 30 con T = 20 da las mismas métricas que no haber salido (null)."""
+    con_salida_tarde = eventos_base + [_cliente(9, 15, 15, 30, 1)]
+    sin_salida = eventos_base + [_cliente(9, 15, 15, None, 1)]
+    for funcion in (metrics.clientes_totales_atendidos,
+                    metrics.tiempo_promedio_en_sistema,
+                    metrics.clientes_promedio_en_sistema,
+                    metrics.clientes_promedio_por_integracion):
+        assert funcion(con_salida_tarde, DURACION) == pytest.approx(funcion(sin_salida, DURACION))
+
+
+def test_clientes_promedio_sin_clientes_es_cero():
+    assert metrics.clientes_promedio_en_sistema([], DURACION) == 0.0
+    assert metrics.clientes_promedio_por_integracion([], DURACION) == 0.0
+
+
 @pytest.mark.parametrize("duracion", [0, -5, None, True])
 def test_duracion_invalida_lanza_error(eventos_base, duracion):
     with pytest.raises(ValueError):
         metrics.clientes_promedio_en_sistema(eventos_base, duracion)
+    with pytest.raises(ValueError):
+        metrics.tiempo_promedio_en_sistema(eventos_base, duracion)
