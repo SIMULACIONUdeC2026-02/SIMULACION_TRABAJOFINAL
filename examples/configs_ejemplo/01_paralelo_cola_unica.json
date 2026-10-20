@@ -13,25 +13,17 @@
     {
       "id": "cajeros",
       "nombre": "Atención de cajeros",
-      "orden": 1,
-      "servidores": {
-        "cantidad": 3,
-        "distribucion_servicio": {
-          "tipo": "exponencial",
-          "media": 4
-        }
-      },
+      "servidores": [
+        {"id": "s1", "servicio": {"tipo": "exponencial", "media": 4}},
+        {"id": "s2", "servicio": {"tipo": "exponencial", "media": 4}},
+        {"id": "s3", "servicio": {"tipo": "exponencial", "media": 4}}
+      ],
       "colas": {
-        "cantidad": 1,
         "tipo": "unica",
-        "disciplina": "FIFO",
+        "cantidad": 1,
         "reparticion": null
       },
-      "clientes_preferenciales": {
-        "aplica": false,
-        "proporcion": 0.0
-      },
-      "siguiente_estacion": null
+      "salidas": []
     }
   ]
 }

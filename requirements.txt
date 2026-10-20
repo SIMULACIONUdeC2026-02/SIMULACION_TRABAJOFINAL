@@ -7,7 +7,7 @@ scipy
 pandas
 
 # Interfaz y gráficas
-streamlit
+streamlit>=1.49.0
 plotly
 
 # Pruebas
