@@ -78,3 +78,36 @@ def test_cliente_sin_salida_no_cuenta_como_atendido(eventos_base):
 
 def test_clientes_totales_atendidos(eventos_base):
     assert metrics.clientes_totales_atendidos(eventos_base) == 8
+
+
+# --------------------------------------------------------------------------
+# Clientes promedio en el sistema, Ley de Little (Issue #14)
+# --------------------------------------------------------------------------
+
+def test_clientes_promedio_por_ley_de_little(eventos_base):
+    assert metrics.clientes_promedio_en_sistema(eventos_base, DURACION) == pytest.approx(1.75)
+
+
+def test_little_coincide_con_la_integracion_de_n_t(eventos_base):
+    """Si todos entran y salen dentro de [0, T], L = λ·W = (1/T)·∫N(t)dt."""
+    little = metrics.clientes_promedio_en_sistema(eventos_base, DURACION)
+    integral = metrics.clientes_promedio_por_integracion(eventos_base, DURACION)
+    assert little == pytest.approx(integral)
+
+
+def test_integracion_cuenta_al_que_sigue_dentro_hasta_el_final(eventos_base):
+    sin_salida = _cliente(9, 18, 19, None, 3)
+    eventos = eventos_base + [sin_salida]
+    # 35 minutos de los 8 atendidos + 2 minutos (de 18 a 20) del que sigue dentro
+    assert metrics.clientes_promedio_por_integracion(eventos, DURACION) == pytest.approx(37 / 20)
+
+
+def test_integracion_recorta_lo_que_pasa_despues_del_final():
+    eventos = [_cliente(1, 15, 15, 30, 1)]
+    assert metrics.clientes_promedio_por_integracion(eventos, DURACION) == pytest.approx(5 / 20)
+
+
+@pytest.mark.parametrize("duracion", [0, -5, None, True])
+def test_duracion_invalida_lanza_error(eventos_base, duracion):
+    with pytest.raises(ValueError):
+        metrics.clientes_promedio_en_sistema(eventos_base, duracion)
