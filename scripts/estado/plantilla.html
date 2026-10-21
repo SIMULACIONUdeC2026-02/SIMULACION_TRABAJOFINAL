@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Panel de estado del proyecto</title>
+<style>
+/* Distribución: franja de resumen arriba, luego atención, flujo de PRs, equipos, personas, issues, actividad. */
+:root{
+  --bg:#f2f5f7; --panel:#ffffff; --ink:#14202b; --mute:#5d6b78; --line:#dce3e9;
+  --acc:#0b6e8a; --acc-soft:#dff0f5;
+  --ok:#1f7a45; --ok-soft:#e0f3e8; --warn:#a15c00; --warn-soft:#fdf0d8; --bad:#b42318; --bad-soft:#fde7e4;
+  --neutro-soft:#e9eef2;
+  --f-ui:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --f-num:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0f1820; --panel:#16222c; --ink:#e6edf2; --mute:#93a3b1; --line:#26364a;
+  --acc:#4cc3e0; --acc-soft:#12394a;
+  --ok:#5fd38d; --ok-soft:#14372a; --warn:#f0b254; --warn-soft:#3b2b10; --bad:#ff8a7d; --bad-soft:#44201c;
+  --neutro-soft:#1f2e3b; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f1820; --panel:#16222c; --ink:#e6edf2; --mute:#93a3b1; --line:#26364a;
+  --acc:#4cc3e0; --acc-soft:#12394a;
+  --ok:#5fd38d; --ok-soft:#14372a; --warn:#f0b254; --warn-soft:#3b2b10; --bad:#ff8a7d; --bad-soft:#44201c;
+  --neutro-soft:#1f2e3b; color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 var(--f-ui);
+  padding-block:20px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+main{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+a{color:var(--acc)} h1,h2,h3,p{margin:0}
+h2{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);font-weight:650}
+.sec{display:flex;flex-direction:column;gap:10px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px;min-width:0}
+.num{font-family:var(--f-num);font-variant-numeric:tabular-nums}
+header{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:flex-end;justify-content:space-between}
+header h1{font-size:26px;line-height:1.15;text-wrap:balance}
+header .meta{color:var(--mute);font-size:13px}
+.cuenta{display:flex;align-items:baseline;gap:8px;background:var(--acc-soft);color:var(--ink);border-radius:8px;padding:10px 14px}
+.cuenta b{font-size:28px;font-family:var(--f-num);color:var(--acc)} .cuenta span{font-size:13px;color:var(--mute)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+.kpi{display:flex;flex-direction:column;gap:6px}
+.kpi .v{font:600 30px/1 var(--f-num)} .kpi .l{font-size:13px;color:var(--mute)}
+.barra{height:8px;border-radius:4px;background:var(--neutro-soft);overflow:hidden;display:flex}
+.barra i{display:block;height:100%} .b-ok{background:var(--ok)} .b-acc{background:var(--acc)} .b-warn{background:var(--warn)}
+.alertas{display:flex;flex-direction:column;gap:8px}
+.alerta{display:flex;gap:10px;align-items:flex-start;border-radius:6px;padding:9px 12px;font-size:14px}
+.alerta.bad{background:var(--bad-soft)} .alerta.warn{background:var(--warn-soft)} .alerta.ok{background:var(--ok-soft)}
+.alerta .tag{font:700 11px var(--f-ui);letter-spacing:.06em;text-transform:uppercase;padding:2px 6px;border-radius:4px;white-space:nowrap;margin-top:1px}
+.bad .tag{background:var(--bad);color:var(--panel)} .warn .tag{background:var(--warn);color:var(--panel)} .ok .tag{background:var(--ok);color:var(--panel)}
+.flujo{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
+.col{background:var(--neutro-soft);border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.col h3{font-size:13px;display:flex;justify-content:space-between;gap:8px}
+.col h3 .c{font-family:var(--f-num);color:var(--mute)}
+.tarjeta{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-size:13px;display:flex;flex-direction:column;gap:3px;min-width:0}
+.tarjeta a{font-weight:600;text-decoration:none;overflow-wrap:anywhere} .tarjeta .s{color:var(--mute)}
+.vacio{color:var(--mute);font-size:13px;padding:6px 2px}
+.eq{display:grid;grid-template-columns:110px 1fr minmax(180px,300px);gap:8px 14px;align-items:center}
+.eq .n{font-weight:600} .eq .d{font-size:12px;color:var(--mute);text-align:right}
+.leyenda{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--mute);margin-top:6px}
+.leyenda i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font:600 13px var(--f-ui);border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:6px 12px;border-radius:999px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--acc);border-color:var(--acc);color:var(--panel)}
+.chip:focus-visible,select:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.chip .c{font-family:var(--f-num);opacity:.8;margin-left:4px}
+.personas{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
+.persona{display:flex;flex-direction:column;gap:8px}
+.persona .top{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+.persona .nom{font-weight:650} .persona .lg{color:var(--mute);font-size:12px}
+.pill{font:650 11px var(--f-ui);padding:3px 8px;border-radius:999px;white-space:nowrap}
+.p-bad{background:var(--bad-soft);color:var(--bad)} .p-warn{background:var(--warn-soft);color:var(--warn)}
+.p-ok{background:var(--ok-soft);color:var(--ok)} .p-acc{background:var(--acc-soft);color:var(--acc)} .p-n{background:var(--neutro-soft);color:var(--mute)}
+.tags{display:flex;gap:6px;flex-wrap:wrap}
+.cifras{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;text-align:center;border-top:1px solid var(--line);padding-top:8px}
+.cifras span{white-space:nowrap}.cifras b{display:block;font:600 17px var(--f-num)} .cifras span{font-size:11px;color:var(--mute)}
+.tabla{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th{text-align:left;font-size:12px;color:var(--mute);font-weight:650;padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+select{font:inherit;padding:6px 10px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink)}
+.act{display:flex;align-items:flex-end;gap:6px;height:120px;padding-top:6px}
+.act .d{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:4px;height:100%;min-width:0}
+.act .d i{display:block;width:100%;max-width:34px;background:var(--acc);border-radius:3px 3px 0 0}
+.act .d span{font-size:10px;color:var(--mute);font-family:var(--f-num)}
+.act .d em{font:normal 11px var(--f-num);color:var(--ink)}
+.dos{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+.dos ul{margin:8px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:5px}
+footer{color:var(--mute);font-size:12px}
+@media (max-width:640px){.eq{grid-template-columns:1fr}.eq .d{text-align:left}header h1{font-size:22px}}
+</style>
+</head>
+<body>
+<main id="app"></main>
+<script>
+const DATOS = /*__DATOS__*/null;
+const $ = (s, r=document) => r.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const D = DATOS, ahora = new Date(D.generado);
+const dias = iso => (ahora - new Date(iso)) / 86400000;
+const hace = iso => { const d = dias(iso); return d < 1 ? "hoy" : d < 2 ? "ayer" : "hace " + Math.floor(d) + " días"; };
+const prPorN = Object.fromEntries(D.prs.map(p => [p.n, p]));
+const nombreDe = Object.fromEntries(D.personas.map(p => [p.login.toLowerCase(), p.nombre]));
+const quien = l => esc(nombreDe[String(l).toLowerCase()] || l);
+
+const ESTADO_PR = {
+  espera: ["Esperando revisión", "p-warn"], cambios: ["Cambios solicitados", "p-bad"],
+  aprobado: ["Aprobado, listo para fusionar", "p-ok"], borrador: ["Borrador", "p-n"],
+  fusionado: ["Fusionado", "p-ok"], cerrado: ["Cerrado sin fusionar", "p-n"]
+};
+const ETQ = {
+  sin_aportes: ["Sin aportes", "p-bad"], pr_espera: ["PR en espera", "p-warn"],
+  con_issues: ["Con issues abiertos", "p-acc"], activo: ["Ha integrado o revisado", "p-ok"]
+};
+
+function render(){
+  const issAb = D.issues.filter(i => i.abierto), issCe = D.issues.filter(i => !i.abierto);
+  const prAb = D.prs.filter(p => ["espera","cambios","aprobado","borrador"].includes(p.estado));
+  const prFu = D.prs.filter(p => p.estado === "fusionado");
+  const sinAp = D.personas.filter(p => p.etiquetas.includes("sin_aportes"));
+  const pct = D.issues.length ? Math.round(100 * issCe.length / D.issues.length) : 0;
+  const ent = D.notas.entrega ? new Date(D.notas.entrega.fecha) : null;
+  const dEnt = ent ? Math.ceil((ent - ahora) / 86400000) : null;
+  const cuenta = ent ? (dEnt >= 0
+      ? `<div class="cuenta"><b>${dEnt}</b><span>${dEnt === 1 ? "día" : "días"} para<br>${esc(D.notas.entrega.nombre)}</span></div>`
+      : `<div class="cuenta" style="background:var(--bad-soft)"><b style="color:var(--bad)">${-dEnt}</b><span>días de retraso en<br>${esc(D.notas.entrega.nombre)}</span></div>`) : "";
+
+  // atención
+  const al = [];
+  prAb.filter(p => p.estado === "cambios").forEach(p => al.push(["bad", "Cambios pedidos", `<a href="${esc(p.url)}">PR #${p.n}</a> de ${quien(p.autor)} espera que corrija lo pedido en la revisión.`]));
+  prAb.filter(p => p.estado === "aprobado").forEach(p => al.push(["ok", "Listo", `<a href="${esc(p.url)}">PR #${p.n}</a> de ${quien(p.autor)} está aprobado y puede fusionarse.`]));
+  prAb.filter(p => p.estado === "espera" && dias(p.creado) >= 2).forEach(p => al.push(["warn", "Sin revisar", `<a href="${esc(p.url)}">PR #${p.n}</a> de ${quien(p.autor)} lleva ${Math.floor(dias(p.creado))} días esperando revisión.`]));
+  const sinAsig = issAb.filter(i => !i.asignados.length);
+  if (sinAsig.length) al.push(["warn", "Sin dueño", `${sinAsig.length} issue(s) abiertos sin asignar: ${sinAsig.slice(0,5).map(i => `<a href="${esc(i.url)}">#${i.n}</a>`).join(", ")}.`]);
+  if (sinAp.length) al.push(["bad", "Sin aportes", `${sinAp.length} integrante(s) sin PR, commit ni revisión: ${sinAp.map(p => esc(p.nombre)).join(", ")}.`]);
+  const alertasHtml = al.length ? al.map(a => `<div class="alerta ${a[0]}"><span class="tag">${a[1]}</span><span>${a[2]}</span></div>`).join("")
+      : `<div class="alerta ok"><span class="tag">Todo bien</span><span>No hay nada urgente.</span></div>`;
+
+  // flujo PR
+  const cols = [["espera","Esperando revisión"],["cambios","Cambios solicitados"],["aprobado","Aprobados"],["fusionado","Fusionados"]];
+  const flujo = cols.map(([k, t]) => {
+    let lista = D.prs.filter(p => p.estado === k);
+    if (k === "fusionado") lista = lista.sort((a,b) => b.fusionado.localeCompare(a.fusionado)).slice(0, 8);
+    const tarj = lista.map(p => `<div class="tarjeta"><a href="${esc(p.url)}">#${p.n} ${esc(p.titulo)}</a>
+      <span class="s">${quien(p.autor)} · ${hace(p.fusionado || p.creado)}${p.cierra.length ? " · cierra " + p.cierra.map(n => "#" + n).join(", ") : ""}</span></div>`).join("")
+      || `<div class="vacio">Ninguno.</div>`;
+    const total = D.prs.filter(p => p.estado === k).length;
+    return `<div class="col"><h3>${t}<span class="c">${total}</span></h3>${tarj}</div>`;
+  }).join("");
+
+  // equipos
+  const eqs = D.equipos.filter(e => e.abiertos + e.cerrados + e.prs_fusionados + e.prs_abiertos > 0 || e.personas > 0);
+  const eqHtml = eqs.map(e => {
+    const t = e.abiertos + e.cerrados, pc = t ? 100 * e.cerrados / t : 0;
+    return `<div class="n">${esc(e.nombre)}</div>
+      <div class="barra" role="img" aria-label="${e.cerrados} de ${t} issues cerrados"><i class="b-ok" style="width:${pc}%"></i><i class="b-warn" style="width:${t ? 100 - pc : 0}%;opacity:.35"></i></div>
+      <div class="d num">${e.cerrados}/${t} issues · ${e.prs_fusionados} PR fusionados${e.prs_abiertos ? " · " + e.prs_abiertos + " abiertos" : ""}</div>`;
+  }).join("");
+
+  // actividad: PRs fusionados por día, últimos 14
+  const dd = [];
+  for (let k = 13; k >= 0; k--) { const d = new Date(ahora.getTime() - k * 86400000); dd.push({d, n: 0, key: d.toISOString().slice(0,10)}); }
+  prFu.forEach(p => { const x = dd.find(y => y.key === p.fusionado.slice(0,10)); if (x) x.n++; });
+  const mx = Math.max(1, ...dd.map(x => x.n));
+  const act = dd.map(x => `<div class="d"><em>${x.n || ""}</em><i style="height:${x.n ? 8 + 80 * x.n / mx : 2}px;${x.n ? "" : "opacity:.25"}"></i><span>${x.d.getUTCDate()}</span></div>`).join("");
+
+  // decisiones y riesgos
+  const lista = a => (a && a.length) ? `<ul>${a.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : `<p class="vacio">Ninguna.</p>`;
+
+  $("#app").innerHTML = `
+  <header>
+    <div><h1>${esc(D.notas.proyecto || "Panel de estado")}</h1>
+      <p class="meta">${esc(D.repo)} · actualizado ${esc(ahora.toLocaleString("es-CO", {dateStyle:"medium", timeStyle:"short"}))}${D.project_activo ? " · incluye el Project" : ""}</p></div>
+    ${cuenta}
+  </header>
+  <section class="kpis">
+    <div class="panel kpi"><span class="v">${issCe.length}<small style="font-size:16px;color:var(--mute)">/${D.issues.length}</small></span><span class="l">issues cerrados (${pct}%)</span>
+      <div class="barra"><i class="b-ok" style="width:${pct}%"></i></div></div>
+    <div class="panel kpi"><span class="v">${prFu.length}</span><span class="l">PRs fusionados</span></div>
+    <div class="panel kpi"><span class="v" style="color:var(--warn)">${prAb.length}</span><span class="l">PRs abiertos esperando</span></div>
+    <div class="panel kpi"><span class="v" style="color:${sinAp.length ? "var(--bad)" : "var(--ok)"}">${sinAp.length}<small style="font-size:16px;color:var(--mute)">/${D.personas.length}</small></span><span class="l">integrantes sin aportes</span></div>
+  </section>
+  <section class="sec"><h2>Requiere atención</h2><div class="alertas">${alertasHtml}</div></section>
+  <section class="sec"><h2>Flujo de pull requests</h2><div class="flujo">${flujo}</div></section>
+  <section class="sec"><h2>Avance por equipo</h2><div class="panel"><div class="eq">${eqHtml}</div>
+    <div class="leyenda"><span><i style="background:var(--ok)"></i>issues cerrados</span><span><i style="background:var(--warn);opacity:.35"></i>issues abiertos</span></div></div></section>
+  <section class="sec"><h2>Personas</h2>
+    <div class="chips" id="chips"></div><div class="personas" id="personas"></div></section>
+  <section class="sec"><h2>Issues</h2><div class="panel">
+    <p style="margin-bottom:10px"><label>Mostrar <select id="filtroIss"><option value="abiertos">Abiertos</option><option value="sin">Abiertos sin asignar</option><option value="cerrados">Cerrados</option><option value="todos">Todos</option></select></label></p>
+    <div class="tabla"><table><thead><tr><th>#</th><th>Título</th><th>Asignado a</th><th>Estado</th><th>Project</th></tr></thead><tbody id="issues"></tbody></table></div></div></section>
+  <section class="sec"><h2>PRs fusionados por día (últimos 14 días)</h2><div class="panel"><div class="act">${act}</div></div></section>
+  <section class="dos">
+    <div class="panel"><h2>Decisiones abiertas</h2>${lista(D.notas.decisiones_abiertas)}</div>
+    <div class="panel"><h2>Riesgos</h2>${lista(D.notas.riesgos)}</div>
+  </section>
+  <footer>Generado automáticamente desde GitHub. Los aportes cuentan PRs, commits en main y revisiones; un commit con un correo que no esté ligado a la cuenta de GitHub no aparece.</footer>`;
+
+  // chips + personas
+  const filtros = [["todos","Todos"],["sin_aportes","Sin aportes"],["pr_espera","PR en espera"],["con_issues","Con issues asignados"],["activo","Ya integraron o revisaron"]];
+  let f = "todos";
+  const pintarP = () => {
+    $("#chips").innerHTML = filtros.map(([k, t]) => {
+      const c = k === "todos" ? D.personas.length : D.personas.filter(p => p.etiquetas.includes(k)).length;
+      return `<button class="chip" data-k="${k}" aria-pressed="${f === k}">${t}<span class="c">${c}</span></button>`;
+    }).join("");
+    const orden = {sin_aportes:0, pr_espera:1, con_issues:2, activo:3};
+    const ls = D.personas.filter(p => f === "todos" || p.etiquetas.includes(f))
+      .sort((a, b) => Math.min(...a.etiquetas.map(e => orden[e]), 9) - Math.min(...b.etiquetas.map(e => orden[e]), 9) || a.nombre.localeCompare(b.nombre));
+    $("#personas").innerHTML = ls.map(p => `<div class="panel persona">
+      <div class="top"><div><div class="nom">${esc(p.nombre)}</div><div class="lg">${esc(p.equipo)}${p.lider ? " · líder" : ""} · @${esc(p.login)}</div></div></div>
+      <div class="tags">${p.etiquetas.map(e => `<span class="pill ${ETQ[e][1]}">${ETQ[e][0]}</span>`).join("") || '<span class="pill p-n">Sin actividad</span>'}</div>
+      <div class="cifras"><div><b>${p.prs_fusionados.length}</b><span>fusionados</span></div><div><b>${p.prs_abiertos.length}</b><span>PR abiertos</span></div><div><b>${p.issues_abiertos.length}</b><span>issues</span></div><div><b>${p.revisiones}</b><span>revisiones</span></div></div></div>`).join("")
+      || '<p class="vacio">Nadie en este grupo.</p>';
+    document.querySelectorAll(".chip").forEach(b => b.onclick = () => { f = b.dataset.k; pintarP(); $(`.chip[data-k="${f}"]`).focus(); });
+  };
+  pintarP();
+
+  // issues
+  const pintarI = () => {
+    const m = $("#filtroIss").value;
+    const ls = D.issues.filter(i => m === "todos" || (m === "abiertos" && i.abierto) || (m === "cerrados" && !i.abierto) || (m === "sin" && i.abierto && !i.asignados.length));
+    $("#issues").innerHTML = ls.map(i => `<tr><td class="num"><a href="${esc(i.url)}">#${i.n}</a></td><td>${esc(i.titulo)}</td>
+      <td>${i.asignados.map(quien).join(", ") || '<span class="pill p-warn">Sin asignar</span>'}</td>
+      <td><span class="pill ${i.abierto ? "p-warn" : "p-ok"}">${i.abierto ? "Abierto" : "Cerrado"}</span></td><td>${esc(i.columna || "—")}</td></tr>`).join("")
+      || '<tr><td colspan="5" class="vacio">Ninguno.</td></tr>';
+  };
+  $("#filtroIss").onchange = pintarI; pintarI();
+}
+render();
+</script>
+</body>
+</html>

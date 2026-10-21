@@ -1,0 +1,20 @@
+{
+  "_ayuda": "OPCIONAL. El panel completa solo lo que pueda (asignados, autores de PR y commits). Este archivo garantiza que aparezcan los 14, incluso quienes aún no han hecho nada. Usa 'excluir' para dejar fuera cuentas (por ejemplo la del profesor). Equipos: Engine, Topologías, Métricas, UI, Config.",
+  "integrantes": [
+    {"login": "Crisiszzz07", "equipo": "Topologías", "lider": true},
+    {"login": "7Val07", "equipo": "Topologías"},
+    {"login": "Wittiry443", "equipo": "Topologías"},
+    {"login": "pdEliOlarte", "equipo": "Topologías"},
+    {"login": "Cristobal1234", "equipo": "Engine", "lider": true},
+    {"login": "coleto12", "equipo": "Engine"},
+    {"login": "VladDracula2312", "equipo": "Engine"},
+    {"login": "carrodrigueco", "equipo": "Métricas"},
+    {"login": "Adrianco205", "equipo": "Métricas", "lider": true},
+    {"login": "TheOnemoxh", "equipo": "Métricas"},
+    {"login": "KmiloDLP", "equipo": "UI"},
+    {"login": "GabrielLombana1", "equipo": "UI","lider": true},
+    {"login": "Esteban-Avila", "equipo": "UI"},
+    {"login": "dieg0move03", "equipo": "UI"}
+  ],
+  "excluir": []
+}

@@ -1,0 +1,43 @@
+{
+  "simulacion": {
+    "nombre": "Método 2 - Cola única, múltiples servidores",
+    "metodo": "secuencial",
+    "duracion_minutos": 480,
+    "semilla": 42,
+    "llegada": {
+      "distribucion": "poisson",
+      "lambda_por_hora": 20
+    },
+    "estacion_entrada": "triaje"
+  },
+  "estaciones": [
+    {
+      "id": "triaje",
+      "nombre": "Triaje inicial",
+      "servidores": [
+        {"id": "t1", "servicio": {"tipo": "exponencial", "media": 2}},
+        {"id": "t2", "servicio": {"tipo": "exponencial", "media": 2}}
+      ],
+      "colas": {
+        "tipo": "unica",
+        "cantidad": 1
+      },
+      "salidas": [
+        {"hacia": "atencion", "probabilidad": 1.0}
+      ]
+    },
+    {
+      "id": "atencion",
+      "nombre": "Atención principal",
+      "servidores": [
+        {"id": "a1", "servicio": {"tipo": "exponencial", "media": 4}},
+        {"id": "a2", "servicio": {"tipo": "exponencial", "media": 4}}
+      ],
+      "colas": {
+        "tipo": "unica",
+        "cantidad": 1
+      },
+      "salidas": []
+    }
+  ]
+}

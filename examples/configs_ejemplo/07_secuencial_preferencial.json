@@ -1,0 +1,43 @@
+{
+  "simulacion": {
+    "nombre": "Método 2 - Preferencial",
+    "metodo": "secuencial",
+    "duracion_minutos": 480,
+    "semilla": 77,
+    "llegada": {
+      "distribucion": "poisson",
+      "lambda_por_hora": 18
+    },
+    "clientes_preferenciales": {
+      "proporcion": 0.3
+    },
+    "estacion_entrada": "triaje"
+  },
+  "estaciones": [
+    {
+      "id": "triaje",
+      "servidores": [
+        {"id": "t1", "servicio": {"tipo": "exponencial", "media": 2}}
+      ],
+      "colas": {
+        "tipo": "unica",
+        "cantidad": 1
+      },
+      "salidas": [
+        {"hacia": "especialistas", "probabilidad": 1.0}
+      ]
+    },
+    {
+      "id": "especialistas",
+      "servidores": [
+        {"id": "e1", "servicio": {"tipo": "exponencial", "media": 5}},
+        {"id": "e2", "servicio": {"tipo": "exponencial", "media": 5}}
+      ],
+      "colas": {
+        "tipo": "preferencial",
+        "cantidad": 2
+      },
+      "salidas": []
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+name: Panel de estado
+
+# Publica el panel en GitHub Pages. No hace commits: no cambia ninguna rama del equipo.
+on:
+  push:
+    branches: [main]
+  issues:
+    types: [opened, closed, reopened, assigned, unassigned, edited]
+  pull_request_target:            # corre en el contexto de main; no ejecuta código del PR
+    types: [opened, closed, reopened, synchronize, edited, ready_for_review, converted_to_draft, review_requested]
+  schedule:
+    - cron: "*/15 * * * *"        # cada 15 min: recoge revisiones, comentarios y cambios del Project
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: panel-estado
+  cancel-in-progress: true
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Generar el panel
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PROJECT_TOKEN: ${{ secrets.PROJECT_TOKEN }}   # opcional: solo para leer el Project
+        run: python scripts/estado/generar.py --salida site
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4

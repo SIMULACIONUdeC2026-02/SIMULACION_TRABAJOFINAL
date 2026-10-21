@@ -1,0 +1,41 @@
+{
+  "simulacion": {
+    "nombre": "Método 2 - Colas múltiples, múltiples servidores",
+    "metodo": "secuencial",
+    "duracion_minutos": 480,
+    "semilla": 123,
+    "llegada": {
+      "distribucion": "poisson",
+      "lambda_por_hora": 15
+    },
+    "estacion_entrada": "recepcion"
+  },
+  "estaciones": [
+    {
+      "id": "recepcion",
+      "servidores": [
+        {"id": "r1", "servicio": {"tipo": "uniforme", "min": 1, "max": 3}}
+      ],
+      "colas": {
+        "tipo": "unica",
+        "cantidad": 1
+      },
+      "salidas": [
+        {"hacia": "cajas", "probabilidad": 1.0}
+      ]
+    },
+    {
+      "id": "cajas",
+      "servidores": [
+        {"id": "c1", "servicio": {"tipo": "exponencial", "media": 5}},
+        {"id": "c2", "servicio": {"tipo": "exponencial", "media": 6}}
+      ],
+      "colas": {
+        "tipo": "multiple",
+        "cantidad": 2,
+        "reparticion": "mas_corta"
+      },
+      "salidas": []
+    }
+  ]
+}

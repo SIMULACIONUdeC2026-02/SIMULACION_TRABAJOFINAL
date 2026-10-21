@@ -1,0 +1,15 @@
+{
+  "_ayuda": "Texto que NO se puede leer de GitHub: la fecha del próximo entregable, riesgos y decisiones abiertas. Lo modifico cuando haga falta.",
+  "proyecto": "Simulador de sistemas de colas",
+  "entrega": {"nombre": "Primer avance", "fecha": "2026-10-21T20:00:00-05:00"},
+  "project": {"tipo": "organization", "propietario": "SIMULACIONUdeC2026-02", "numero": 1},
+  "decisiones_abiertas": [
+    "Política de fin de simulación (atendido = salió antes de T)",
+    "Firma de ejecutar_simulacion(config) con Engine",
+    "Advertencia cuando la utilización ρ ≥ 1"
+  ],
+  "riesgos": [
+    "Integrantes sin aportes todavía",
+    "Engine aún no integra su PR"
+  ]
+}
