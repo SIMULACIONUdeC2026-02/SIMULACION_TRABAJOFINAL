@@ -6,7 +6,7 @@
     "semilla": 123,
     "llegada": {
       "distribucion": "poisson",
-      "lambda_por_hora": 45
+      "lambda_por_hora": 15
     },
     "estacion_entrada": "recepcion"
   },

@@ -6,7 +6,7 @@
     "semilla": 42,
     "llegada": {
       "distribucion": "poisson",
-      "lambda_por_hora": 40
+      "lambda_por_hora": 20
     },
     "estacion_entrada": "triaje"
   },

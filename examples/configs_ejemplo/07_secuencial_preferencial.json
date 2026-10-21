@@ -3,9 +3,10 @@
     "nombre": "Método 2 - Preferencial",
     "metodo": "secuencial",
     "duracion_minutos": 480,
+    "semilla": 77,
     "llegada": {
       "distribucion": "poisson",
-      "lambda_por_hora": 50
+      "lambda_por_hora": 18
     },
     "clientes_preferenciales": {
       "proporcion": 0.3

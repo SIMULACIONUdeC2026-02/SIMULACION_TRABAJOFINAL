@@ -3,9 +3,10 @@
     "nombre": "Método 2 - Colas múltiples, servidor único",
     "metodo": "secuencial",
     "duracion_minutos": 480,
+    "semilla": 88,
     "llegada": {
       "distribucion": "poisson",
-      "lambda_por_hora": 30
+      "lambda_por_hora": 15
     },
     "estacion_entrada": "filtro"
   },
