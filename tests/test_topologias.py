@@ -78,3 +78,75 @@ def test_sistema_inestable_lanza_value_error():
             n_servidores=1,
             media_servicio=10,
         )
+
+
+# --------------------------------------------------------------------------
+# Tests de validación de parámetros (PR feedback)
+# --------------------------------------------------------------------------
+
+def test_casos_tabla_pr_29():
+    """
+    Verifica exactamente los casos de la tabla comparativa del PR #29:
+    - n_servidores=0 -> ValueError claro (antes ZeroDivisionError)
+    - n_servidores=2.5 -> ValueError claro (antes TypeError)
+    - n_servidores=True -> ValueError claro (antes se trataba como 1 servidor)
+    - lambda_por_hora="40" -> ValueError claro (antes TypeError)
+    - lambda_por_hora=0 -> ValueError claro (antes lo aceptaba y solo validar_config lo rechazaba)
+    - media_servicio=-3 -> ValueError claro (antes lo aceptaba y solo validar_config lo rechazaba)
+    """
+    # 1. n_servidores = 0
+    with pytest.raises(ValueError, match="n_servidores"):
+        construir_config("paralelo", "cola_unica_multiples_servidores", n_servidores=0)
+
+    # 2. n_servidores = 2.5
+    with pytest.raises(ValueError, match="n_servidores"):
+        construir_config("paralelo", "cola_unica_multiples_servidores", n_servidores=2.5)
+
+    # 3. n_servidores = True
+    with pytest.raises(ValueError, match="n_servidores"):
+        construir_config("paralelo", "cola_unica_multiples_servidores", n_servidores=True)
+
+    # 4. lambda_por_hora = "40"
+    with pytest.raises(ValueError, match="lambda_por_hora"):
+        construir_config("paralelo", "cola_unica_multiples_servidores", lambda_por_hora="40")
+
+    # 5. lambda_por_hora = 0
+    with pytest.raises(ValueError, match="lambda_por_hora"):
+        construir_config("paralelo", "cola_unica_multiples_servidores", lambda_por_hora=0)
+
+    # 6. media_servicio = -3
+    with pytest.raises(ValueError, match="media_servicio"):
+        construir_config("paralelo", "cola_unica_multiples_servidores", media_servicio=-3)
+
+
+
+@pytest.mark.parametrize(
+    "param_kwargs,mensaje_esperado",
+    [
+        ({"n_servidores": -2}, "n_servidores"),
+        ({"n_servidores": False}, "n_servidores"),
+        ({"n_servidores": "3"}, "n_servidores"),
+        ({"lambda_por_hora": 0}, "lambda_por_hora"),
+        ({"lambda_por_hora": -15}, "lambda_por_hora"),
+        ({"lambda_por_hora": True}, "lambda_por_hora"),
+        ({"media_servicio": 0}, "media_servicio"),
+        ({"media_servicio": -5}, "media_servicio"),
+        ({"media_servicio": "4"}, "media_servicio"),
+        ({"media_servicio": True}, "media_servicio"),
+        ({"duracion_minutos": 0}, "duracion_minutos"),
+        ({"duracion_minutos": -60}, "duracion_minutos"),
+        ({"duracion_minutos": "480"}, "duracion_minutos"),
+        ({"duracion_minutos": True}, "duracion_minutos"),
+        ({"semilla": 1.5}, "semilla"),
+        ({"semilla": "42"}, "semilla"),
+        ({"semilla": True}, "semilla"),
+    ],
+)
+def test_otros_parametros_invalidos_lanzan_value_error(param_kwargs, mensaje_esperado):
+    """Otros tipos o valores no permitidos deben lanzar ValueError con mensaje claro."""
+    with pytest.raises(ValueError, match=mensaje_esperado):
+        construir_config(
+            "paralelo",
+            "cola_unica_multiples_servidores",
+            **param_kwargs,
+        )
