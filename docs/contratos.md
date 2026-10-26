@@ -247,3 +247,33 @@ la preferencial y la cola 2 la normal.
 - **Utilización:** `tiempo_ocupado / duracion_total_minutos`.
 - **Clientes promedio en el sistema:** por la Ley de Little, `L = λ · W`,
   que también se puede verificar integrando el número de clientes en el tiempo.
+
+## Engine: acuerdo de integración de la primera entrega
+
+Firma pública confirmada en código: `ejecutar_simulacion(config: dict) -> dict`.
+Importación desde la raíz: `from src.engine import ejecutar_simulacion`.
+Devuelve directamente `simulacion_id`, `duracion_total_minutos` y
+`eventos_clientes`. No agrega `metricas` ni el envoltorio `resultado`;
+quien integra los módulos arma ese envoltorio al exportar el contrato completo.
+
+Alcance actual: método paralelo, una estación, cola única FIFO, uno o varios
+servidores, sin preferenciales. Servicio exponencial o uniforme. Las demás
+variantes lanzan `NotImplementedError`; los datos inválidos del alcance
+soportado lanzan `ValueError`. Las comprobaciones locales del motor no
+sustituyen la validación general que implementará Topologías.
+
+Las llegadas pertenecen a un único proceso Poisson: se generan intervalos
+exponenciales de media `60 / lambda_por_hora`, en minutos. No se generan
+llegadas nuevas en el instante de cierre ni después. Se vacía el sistema
+atendiendo a los clientes pendientes. `duracion_total_minutos` es el máximo
+entre el cierre de llegadas y la última salida; todos los clientes devueltos
+están terminados. Si no hay llegadas, devuelve una lista vacía y la duración
+configurada. El sistema inicia vacío. No hay período de calentamiento.
+
+Métricas debe usar esa duración total al calcular utilización y promedios
+sobre el tiempo. Si aplica Little a esta corrida completa, la tasa efectiva
+es clientes atendidos / duración total, no la tasa nominal de entrada.
+
+Identificadores de clientes, servidores y colas comienzan en 1. Los eventos
+están ordenados por llegada; `cola_asignada` es 1. El mismo diccionario y
+semilla reproducen la corrida en el mismo entorno de ejecución.
