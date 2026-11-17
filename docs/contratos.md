@@ -256,11 +256,16 @@ Devuelve directamente `simulacion_id`, `duracion_total_minutos` y
 `eventos_clientes`. No agrega `metricas` ni el envoltorio `resultado`;
 quien integra los módulos arma ese envoltorio al exportar el contrato completo.
 
-Alcance actual: método paralelo, una estación, cola única FIFO, uno o varios
-servidores, sin preferenciales. Servicio exponencial o uniforme. Las demás
-variantes lanzan `NotImplementedError`; los datos inválidos del alcance
-soportado lanzan `ValueError`. Las comprobaciones locales del motor no
-sustituyen la validación general que implementará Topologías.
+Alcance actual: método paralelo (1 estación) y método secuencial (N estaciones en serie
+o con rutas acíclicas basadas en salidas y probabilidades), con cola única FIFO y uno o varios
+servidores por estación, sin preferenciales. Servicio exponencial o uniforme.
+Cada estación visitada por un cliente genera un registro en su lista `paradas` ordenado
+cronológicamente. `tiempo_entrada_sistema` coincide con el inicio de espera de la primera
+estación (`paradas[0]`), y `tiempo_salida_sistema` es el instante de fin de servicio de la última
+estación (`paradas[-1]`). Las variantes con colas múltiples y clientes preferenciales lanzan
+`NotImplementedError` hasta las siguientes etapas; los datos inválidos del alcance soportado
+lanzan `ValueError`. Las comprobaciones locales del motor no sustituyen la validación general
+implementada en Topologías.
 
 Las llegadas pertenecen a un único proceso Poisson: se generan intervalos
 exponenciales de media `60 / lambda_por_hora`, en minutos. No se generan
