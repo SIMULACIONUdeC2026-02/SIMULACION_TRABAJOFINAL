@@ -248,7 +248,7 @@ la preferencial y la cola 2 la normal.
 - **Clientes promedio en el sistema:** por la Ley de Little, `L = λ · W`,
   que también se puede verificar integrando el número de clientes en el tiempo.
 
-## Engine: acuerdo de integración de la primera entrega
+## Engine: acuerdo de integración
 
 Firma pública confirmada en código: `ejecutar_simulacion(config: dict) -> dict`.
 Importación desde la raíz: `from src.engine import ejecutar_simulacion`.
@@ -257,15 +257,30 @@ Devuelve directamente `simulacion_id`, `duracion_total_minutos` y
 quien integra los módulos arma ese envoltorio al exportar el contrato completo.
 
 Alcance actual: método paralelo (1 estación) y método secuencial (N estaciones en serie
-o con rutas acíclicas basadas en salidas y probabilidades), con cola única FIFO y uno o varios
-servidores por estación, sin preferenciales. Servicio exponencial o uniforme.
+o con rutas acíclicas basadas en salidas y probabilidades), con cola `unica` FIFO o colas
+`multiple` (`round_robin`, `aleatoria` y `mas_corta`), uno o varios servidores por estación,
+sin preferenciales. Servicio exponencial o uniforme por servidor.
 Cada estación visitada por un cliente genera un registro en su lista `paradas` ordenado
 cronológicamente. `tiempo_entrada_sistema` coincide con el inicio de espera de la primera
 estación (`paradas[0]`), y `tiempo_salida_sistema` es el instante de fin de servicio de la última
-estación (`paradas[-1]`). Las variantes con colas múltiples y clientes preferenciales lanzan
-`NotImplementedError` hasta las siguientes etapas; los datos inválidos del alcance soportado
-lanzan `ValueError`. Las comprobaciones locales del motor no sustituyen la validación general
-implementada en Topologías.
+estación (`paradas[-1]`). La variante con clientes preferenciales y colas `preferencial` lanza
+`NotImplementedError` hasta la Etapa 3; los datos inválidos del alcance soportado
+lanzan `ValueError`. El motor ejecuta `validar_config` al inicio.
+
+Reglas aplicadas en estaciones con colas `multiple`:
+- **Asignación servidor–cola:** con múltiples servidores (`c > 1`, con `k = c`), la cola `i`
+  es atendida exclusivamente por el servidor `i` en orden FIFO (`servidor_asignado == cola_asignada`)
+  y el cliente no cambia de cola. Con un solo servidor (`c = 1`, `k >= 2`), ese servidor único
+  atiende siempre al cliente que lleva más tiempo esperando entre todas las colas (orden FIFO
+  global por instante de llegada a la estación; ante empate exacto, orden de ingreso).
+- **Repartición y desempate:** `round_robin` rota cíclicamente `1, 2, ..., k, 1, ...` de forma
+  independiente en cada estación; `aleatoria` elige en `1..k` con igual probabilidad usando el
+  mismo generador con semilla; `mas_corta` elige la cola con menor cantidad de clientes y,
+  en caso de empate, la cola de menor número. En `mas_corta` con múltiples servidores (`k = c`),
+  la longitud considerada por cola incluye tanto a quienes esperan en esa cola como al cliente
+  en atención en su servidor dedicado (`en_espera + en_atencion`), evitando enviar clientes a un
+  servidor ocupado mientras haya otro libre. Con servidor único (`c = 1`), el servidor es compartido
+  y se cuenta únicamente a los clientes esperando en cada cola.
 
 Las llegadas pertenecen a un único proceso Poisson: se generan intervalos
 exponenciales de media `60 / lambda_por_hora`, en minutos. No se generan
@@ -280,5 +295,6 @@ sobre el tiempo. Si aplica Little a esta corrida completa, la tasa efectiva
 es clientes atendidos / duración total, no la tasa nominal de entrada.
 
 Identificadores de clientes, servidores y colas comienzan en 1. Los eventos
-están ordenados por llegada; `cola_asignada` es 1. El mismo diccionario y
-semilla reproducen la corrida en el mismo entorno de ejecución.
+están ordenados por llegada; `cola_asignada` refleja la cola real asignada en `1..k`
+(`1` en estaciones de cola única). El mismo diccionario y semilla reproducen
+la corrida en el mismo entorno de ejecución.

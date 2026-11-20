@@ -4,19 +4,27 @@ import random
 from pathlib import Path
 
 import pytest
+from src.contrato_salida import validar_resultado
 from src.engine import ejecutar_simulacion
+
+CARPETA_EJEMPLOS = Path(__file__).resolve().parents[1] / 'examples/configs_ejemplo'
+
+
+def _cargar_ejemplo(nombre_archivo: str) -> dict:
+    """Carga un archivo JSON de examples/configs_ejemplo."""
+    return json.loads((CARPETA_EJEMPLOS / nombre_archivo).read_text(encoding='utf-8'))
 
 
 @pytest.fixture
 def config():
     """Devuelve una copia del ejemplo compartido por los equipos (método paralelo)."""
-    ruta = Path(__file__).resolve().parents[1] / 'examples/configs_ejemplo/01_paralelo_cola_unica.json'
-    return json.loads(ruta.read_text(encoding='utf-8'))
+    return _cargar_ejemplo('01_paralelo_cola_unica.json')
 
 
 def test_contrato_fifo_y_servidores_sin_solapamientos(config):
     """Comprueba eventos completos, capacidad, orden FIFO y tiempos consistentes."""
     resultado = ejecutar_simulacion(config)
+    assert validar_resultado(resultado, config) == []
     eventos = resultado['eventos_clientes']
     assert eventos
     assert set(resultado) == {'simulacion_id', 'duracion_total_minutos', 'eventos_clientes'}
@@ -83,9 +91,9 @@ def test_tasa_invalida(config, valor):
 
 def test_secuencial_cola_unica_dos_estaciones():
     """Comprueba simulación secuencial con múltiples estaciones (ejemplo 05)."""
-    ruta = Path(__file__).resolve().parents[1] / 'examples/configs_ejemplo/05_secuencial_cola_unica.json'
-    config_secuencial = json.loads(ruta.read_text(encoding='utf-8'))
+    config_secuencial = _cargar_ejemplo('05_secuencial_cola_unica.json')
     resultado = ejecutar_simulacion(config_secuencial)
+    assert validar_resultado(resultado, config_secuencial) == []
 
     eventos = resultado['eventos_clientes']
     assert len(eventos) > 0
@@ -104,19 +112,207 @@ def test_secuencial_cola_unica_dos_estaciones():
             assert p['cola_asignada'] == 1
 
 
-def test_variantes_pendientes_etapa_2_y_3():
-    """Verifica que colas múltiples y preferenciales señalen que están pendientes."""
-    ruta_base = Path(__file__).resolve().parents[1] / 'examples/configs_ejemplo'
+def test_colas_multiples_round_robin_paralelo():
+    """Comprueba reparto round_robin y asignación 1-a-1 servidor-cola (ejemplo 02)."""
+    cfg = _cargar_ejemplo('02_paralelo_colas_multiples.json')
+    resultado = ejecutar_simulacion(cfg)
+    assert validar_resultado(resultado, cfg) == []
+    assert resultado == ejecutar_simulacion(cfg)
 
-    # Ejemplo 02: colas múltiples
-    cfg_multiples = json.loads((ruta_base / '02_paralelo_colas_multiples.json').read_text(encoding='utf-8'))
-    with pytest.raises(NotImplementedError, match='tipo de cola'):
-        ejecutar_simulacion(cfg_multiples)
+    eventos = resultado['eventos_clientes']
+    assert len(eventos) >= 6
 
-    # Ejemplo 03: preferenciales
-    cfg_pref = json.loads((ruta_base / '03_paralelo_preferencial.json').read_text(encoding='utf-8'))
-    with pytest.raises(NotImplementedError, match='preferenciales'):
-        ejecutar_simulacion(cfg_pref)
+    inicios_por_cola = {1: [], 2: [], 3: []}
+    finales_por_servidor = {}
+    for idx, cliente in enumerate(eventos):
+        parada = cliente['paradas'][0]
+        cola_esperada = (idx % 3) + 1
+        assert parada['cola_asignada'] == cola_esperada
+        assert parada['servidor_asignado'] == cola_esperada
+        assert parada['tiempo_inicio_servicio'] >= finales_por_servidor.get(cola_esperada, 0)
+        finales_por_servidor[cola_esperada] = parada['tiempo_fin_servicio']
+        inicios_por_cola[cola_esperada].append(parada['tiempo_inicio_servicio'])
+
+    for inicios in inicios_por_cola.values():
+        assert inicios == sorted(inicios)
+
+
+def test_colas_multiples_mas_corta_servidor_unico():
+    """Comprueba servidor único con múltiples colas y reparto mas_corta (ejemplo 04)."""
+    cfg = _cargar_ejemplo('04_paralelo_servidor_unico.json')
+    resultado = ejecutar_simulacion(cfg)
+    assert validar_resultado(resultado, cfg) == []
+
+    eventos = resultado['eventos_clientes']
+    assert len(eventos) > 0
+
+    colas_usadas = set()
+    inicios = []
+    for cliente in eventos:
+        parada = cliente['paradas'][0]
+        assert parada['servidor_asignado'] == 1
+        assert parada['cola_asignada'] in (1, 2)
+        colas_usadas.add(parada['cola_asignada'])
+        inicios.append(parada['tiempo_inicio_servicio'])
+
+    assert colas_usadas == {1, 2}
+    assert inicios == sorted(inicios)
+
+
+def test_colas_multiples_mas_corta_desempate_multi_servidor():
+    """Verifica que mas_corta cuenta ocupación del servidor y desempata por menor cola."""
+    cfg = {
+        'simulacion': {
+            'nombre': 'Desempate mas_corta multiples servidores',
+            'metodo': 'paralelo',
+            'duracion_minutos': 3,
+            'semilla': 42,
+            'llegada': {
+                'distribucion': 'poisson',
+                'lambda_por_hora': 600,
+            },
+        },
+        'estaciones': [
+            {
+                'id': 'cajeros',
+                'servidores': [
+                    {'id': f's{i}', 'servicio': {'tipo': 'uniforme', 'min': 9.999, 'max': 10.001}}
+                    for i in range(1, 4)
+                ],
+                'colas': {
+                    'tipo': 'multiple',
+                    'cantidad': 3,
+                    'reparticion': 'mas_corta',
+                },
+                'salidas': [],
+            },
+        ],
+    }
+
+    resultado = ejecutar_simulacion(cfg)
+    assert validar_resultado(resultado, cfg) == []
+    eventos = resultado['eventos_clientes']
+    assert len(eventos) >= 6
+
+    # Ningún servicio termina antes de t=3 min, así que la carga crece equilibrada 1, 2, 3, 1, 2, 3...
+    for idx, cliente in enumerate(eventos):
+        parada = cliente['paradas'][0]
+        esperada = (idx % 3) + 1
+        assert parada['cola_asignada'] == esperada
+        assert parada['servidor_asignado'] == esperada
+        if idx < 3:
+            assert parada['tiempo_inicio_servicio'] == parada['tiempo_inicio_espera']
+        else:
+            assert parada['tiempo_inicio_servicio'] > parada['tiempo_inicio_espera']
+
+
+def test_colas_multiples_mas_corta_desempate_servidor_unico():
+    """Verifica que mas_corta con servidor único cuenta solo espera y desempata por menor cola."""
+    cfg = {
+        'simulacion': {
+            'nombre': 'Desempate mas_corta servidor unico',
+            'metodo': 'paralelo',
+            'duracion_minutos': 3,
+            'semilla': 42,
+            'llegada': {
+                'distribucion': 'poisson',
+                'lambda_por_hora': 600,
+            },
+        },
+        'estaciones': [
+            {
+                'id': 'taquilla',
+                'servidores': [
+                    {'id': 's1', 'servicio': {'tipo': 'uniforme', 'min': 9.999, 'max': 10.001}},
+                ],
+                'colas': {
+                    'tipo': 'multiple',
+                    'cantidad': 3,
+                    'reparticion': 'mas_corta',
+                },
+                'salidas': [],
+            },
+        ],
+    }
+
+    resultado = ejecutar_simulacion(cfg)
+    assert validar_resultado(resultado, cfg) == []
+    eventos = resultado['eventos_clientes']
+    assert len(eventos) >= 5
+
+    # Cliente 1 pasa directo a atención (colas en espera = [0, 0, 0] -> cola 1).
+    # Clientes 2..5 esperan mientras el servidor sigue ocupado -> colas 1, 2, 3, 1.
+    colas_primeros_cinco = [c['paradas'][0]['cola_asignada'] for c in eventos[:5]]
+    assert colas_primeros_cinco == [1, 1, 2, 3, 1]
+    assert all(c['paradas'][0]['servidor_asignado'] == 1 for c in eventos)
+
+    inicios = [c['paradas'][0]['tiempo_inicio_servicio'] for c in eventos]
+    assert inicios == sorted(inicios)
+
+
+def test_secuencial_colas_multiples_ejemplo_06():
+    """Comprueba método secuencial con colas múltiples y mas_corta (ejemplo 06)."""
+    cfg = _cargar_ejemplo('06_secuencial_colas_multiples.json')
+    resultado = ejecutar_simulacion(cfg)
+    assert validar_resultado(resultado, cfg) == []
+
+    eventos = resultado['eventos_clientes']
+    assert len(eventos) > 0
+
+    colas_cajas = set()
+    for cliente in eventos:
+        assert len(cliente['paradas']) == 2
+        p_recep, p_cajas = cliente['paradas']
+        assert p_recep['estacion_id'] == 'recepcion'
+        assert p_recep['cola_asignada'] == 1
+        assert p_recep['servidor_asignado'] == 1
+        assert p_cajas['estacion_id'] == 'cajas'
+        assert p_cajas['cola_asignada'] in (1, 2)
+        assert p_cajas['servidor_asignado'] == p_cajas['cola_asignada']
+        colas_cajas.add(p_cajas['cola_asignada'])
+
+    assert colas_cajas == {1, 2}
+
+
+def test_secuencial_servidor_unico_aleatoria_ejemplo_08():
+    """Comprueba método secuencial con servidor único y reparto aleatorio (ejemplo 08)."""
+    cfg = _cargar_ejemplo('08_secuencial_servidor_unico.json')
+    estado = random.getstate()
+    resultado = ejecutar_simulacion(cfg)
+    assert validar_resultado(resultado, cfg) == []
+    assert resultado == ejecutar_simulacion(cfg)
+    assert random.getstate() == estado
+
+    eventos = resultado['eventos_clientes']
+    assert len(eventos) > 0
+
+    colas_taquilla = set()
+    for cliente in eventos:
+        assert len(cliente['paradas']) == 2
+        p_filtro, p_taquilla = cliente['paradas']
+        assert p_filtro['estacion_id'] == 'filtro'
+        assert p_filtro['cola_asignada'] == 1
+        assert p_taquilla['estacion_id'] == 'taquilla'
+        assert p_taquilla['servidor_asignado'] == 1
+        assert p_taquilla['cola_asignada'] in (1, 2, 3)
+        colas_taquilla.add(p_taquilla['cola_asignada'])
+
+    assert colas_taquilla == {1, 2, 3}
+
+    paradas_taquilla = sorted(
+        (c['paradas'][1] for c in eventos),
+        key=lambda p: p['tiempo_inicio_espera'],
+    )
+    inicios_taquilla = [p['tiempo_inicio_servicio'] for p in paradas_taquilla]
+    assert inicios_taquilla == sorted(inicios_taquilla)
+
+
+def test_variantes_pendientes_etapa_3():
+    """Verifica que las variantes preferenciales señalen que están pendientes."""
+    for archivo in ('03_paralelo_preferencial.json', '07_secuencial_preferencial.json'):
+        cfg_pref = _cargar_ejemplo(archivo)
+        with pytest.raises(NotImplementedError, match='preferenciales'):
+            ejecutar_simulacion(cfg_pref)
 
 
 def test_ejercicio_5_12_convergencia_teorica():
@@ -171,6 +367,7 @@ def test_ejercicio_5_12_convergencia_teorica():
     }
 
     resultado = ejecutar_simulacion(config_512)
+    assert validar_resultado(resultado, config_512) == []
     eventos = resultado['eventos_clientes']
     duracion = resultado['duracion_total_minutos']
 
