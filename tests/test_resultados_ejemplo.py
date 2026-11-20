@@ -5,6 +5,7 @@ contrato de salida (docs/contratos.md) y que es coherente con la
 configuración con la que va emparejado. Así Equipo 3 y Equipo 4 pueden
 trabajar con datos de prueba mientras el motor no está listo.
 """
+from fsspec import config
 import json
 from pathlib import Path
 
@@ -52,7 +53,9 @@ def test_forma_del_contrato_de_salida(ruta):
     resultado, config = _par(ruta)
     assert set(resultado) == {"simulacion_id", "duracion_total_minutos",
                               "eventos_clientes", "metricas"}
-    assert resultado["duracion_total_minutos"] == config["simulacion"]["duracion_minutos"]
+    # Política de cierre: T = max(cierre, última salida), así que nunca es menor
+    # que la ventana de llegadas (puede ser mayor si la cola se vacía después).
+    assert resultado["duracion_total_minutos"] >= config["simulacion"]["duracion_minutos"]
 
     ids = [c["cliente_id"] for c in resultado["eventos_clientes"]]
     assert len(ids) == len(set(ids)), "cliente_id repetido"
