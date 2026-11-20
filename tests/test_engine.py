@@ -307,12 +307,146 @@ def test_secuencial_servidor_unico_aleatoria_ejemplo_08():
     assert inicios_taquilla == sorted(inicios_taquilla)
 
 
-def test_variantes_pendientes_etapa_3():
-    """Verifica que las variantes preferenciales señalen que están pendientes."""
-    for archivo in ('03_paralelo_preferencial.json', '07_secuencial_preferencial.json'):
-        cfg_pref = _cargar_ejemplo(archivo)
-        with pytest.raises(NotImplementedError, match='preferenciales'):
-            ejecutar_simulacion(cfg_pref)
+@pytest.mark.parametrize(
+    'archivo',
+    sorted(p.name for p in CARPETA_EJEMPLOS.glob('*.json')),
+)
+def test_todos_los_ejemplos_oficiales_corren_y_pasan_contrato(archivo):
+    """Comprueba que los 8 ejemplos de configs_ejemplo corren y pasan validar_resultado."""
+    cfg = _cargar_ejemplo(archivo)
+    resultado = ejecutar_simulacion(cfg)
+    assert validar_resultado(resultado, cfg) == []
+    assert len(resultado['eventos_clientes']) > 0
+
+
+def test_preferencial_paralelo_ejemplo_03():
+    """Comprueba reparto de clase, prioridad no expropiativa y reproducibilidad (ejemplo 03)."""
+    cfg = _cargar_ejemplo('03_paralelo_preferencial.json')
+    estado = random.getstate()
+    resultado = ejecutar_simulacion(cfg)
+    assert validar_resultado(resultado, cfg) == []
+    assert resultado == ejecutar_simulacion(cfg)
+    assert random.getstate() == estado
+
+    eventos = resultado['eventos_clientes']
+    preferenciales = [c for c in eventos if c['es_preferencial']]
+    normales = [c for c in eventos if not c['es_preferencial']]
+    assert preferenciales and normales
+
+    proporcion_observada = len(preferenciales) / len(eventos)
+    assert proporcion_observada == pytest.approx(0.2, abs=0.08)
+
+    for c in preferenciales:
+        assert c['paradas'][0]['cola_asignada'] == 1
+    for c in normales:
+        assert c['paradas'][0]['cola_asignada'] == 2
+
+    # FIFO dentro de cada cola
+    inicios_pref = [c['paradas'][0]['tiempo_inicio_servicio'] for c in preferenciales]
+    inicios_norm = [c['paradas'][0]['tiempo_inicio_servicio'] for c in normales]
+    assert inicios_pref == sorted(inicios_pref)
+    assert inicios_norm == sorted(inicios_norm)
+
+    # Prioridad estricta: ningún normal inicia antes que un preferencial que ya estaba esperando
+    for n in normales:
+        inicio_n = n['paradas'][0]['tiempo_inicio_servicio']
+        for p in preferenciales:
+            if p['paradas'][0]['tiempo_inicio_espera'] < inicio_n:
+                assert p['paradas'][0]['tiempo_inicio_servicio'] <= inicio_n
+
+
+def test_preferencial_prioridad_no_expropiativa():
+    """Verifica que la prioridad adelanta a los normales en espera sin interrumpir el servicio."""
+    cfg = {
+        'simulacion': {
+            'nombre': 'Prioridad no expropiativa controlada',
+            'metodo': 'paralelo',
+            'duracion_minutos': 3,
+            'semilla': 1,
+            'llegada': {
+                'distribucion': 'poisson',
+                'lambda_por_hora': 600,
+            },
+            'clientes_preferenciales': {
+                'proporcion': 0.5,
+            },
+        },
+        'estaciones': [
+            {
+                'id': 'atencion',
+                'servidores': [
+                    {'id': 's1', 'servicio': {'tipo': 'uniforme', 'min': 9.999, 'max': 10.001}},
+                ],
+                'colas': {
+                    'tipo': 'preferencial',
+                    'cantidad': 2,
+                    'reparticion': None,
+                },
+                'salidas': [],
+            },
+        ],
+    }
+
+    resultado = ejecutar_simulacion(cfg)
+    assert validar_resultado(resultado, cfg) == []
+    eventos = resultado['eventos_clientes']
+    assert len(eventos) >= 6
+
+    # El primer cliente es normal y completa su servicio (~10 min) sin ser interrumpido
+    primero = eventos[0]
+    assert primero['es_preferencial'] is False
+    p0 = primero['paradas'][0]
+    assert p0['cola_asignada'] == 2
+    assert p0['tiempo_inicio_servicio'] == p0['tiempo_inicio_espera']
+    assert p0['tiempo_fin_servicio'] - p0['tiempo_inicio_servicio'] == pytest.approx(10, abs=0.01)
+
+    # Todos los demás llegan antes de que termine el primero (t < 3 < 10)
+    en_espera = eventos[1:]
+    pref_espera = [c for c in en_espera if c['es_preferencial']]
+    norm_espera = [c for c in en_espera if not c['es_preferencial']]
+    assert pref_espera and norm_espera
+
+    # Todos los preferenciales en espera son atendidos después del primero y antes que los normales
+    ultimo_inicio_pref = max(c['paradas'][0]['tiempo_inicio_servicio'] for c in pref_espera)
+    primer_inicio_norm = min(c['paradas'][0]['tiempo_inicio_servicio'] for c in norm_espera)
+    assert min(c['paradas'][0]['tiempo_inicio_servicio'] for c in pref_espera) >= p0['tiempo_fin_servicio']
+    assert ultimo_inicio_pref < primer_inicio_norm
+
+
+def test_secuencial_preferencial_ejemplo_07():
+    """Verifica triaje común (unica) seguido de especialistas con prioridad (ejemplo 07)."""
+    cfg = _cargar_ejemplo('07_secuencial_preferencial.json')
+    resultado = ejecutar_simulacion(cfg)
+    assert validar_resultado(resultado, cfg) == []
+
+    eventos = resultado['eventos_clientes']
+    assert any(c['es_preferencial'] for c in eventos)
+    assert any(not c['es_preferencial'] for c in eventos)
+
+    # En triaje (cola unica) se ignora la clase: todos van a cola 1 en FIFO global
+    inicios_triaje = [c['paradas'][0]['tiempo_inicio_servicio'] for c in eventos]
+    assert inicios_triaje == sorted(inicios_triaje)
+
+    paradas_esp_pref = []
+    paradas_esp_norm = []
+    for cliente in eventos:
+        assert len(cliente['paradas']) == 2
+        p_triaje, p_esp = cliente['paradas']
+        assert p_triaje['estacion_id'] == 'triaje'
+        assert p_triaje['cola_asignada'] == 1
+        assert p_esp['estacion_id'] == 'especialistas'
+        if cliente['es_preferencial']:
+            assert p_esp['cola_asignada'] == 1
+            paradas_esp_pref.append(p_esp)
+        else:
+            assert p_esp['cola_asignada'] == 2
+            paradas_esp_norm.append(p_esp)
+
+    # Prioridad respetada en especialistas
+    for pn in paradas_esp_norm:
+        for pp in paradas_esp_pref:
+            if pp['tiempo_inicio_espera'] < pn['tiempo_inicio_servicio']:
+                assert pp['tiempo_inicio_servicio'] <= pn['tiempo_inicio_servicio']
 
 
 def test_ejercicio_5_12_convergencia_teorica():
