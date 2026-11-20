@@ -256,16 +256,15 @@ Devuelve directamente `simulacion_id`, `duracion_total_minutos` y
 `eventos_clientes`. No agrega `metricas` ni el envoltorio `resultado`;
 quien integra los módulos arma ese envoltorio al exportar el contrato completo.
 
-Alcance actual: método paralelo (1 estación) y método secuencial (N estaciones en serie
-o con rutas acíclicas basadas en salidas y probabilidades), con cola `unica` FIFO o colas
-`multiple` (`round_robin`, `aleatoria` y `mas_corta`), uno o varios servidores por estación,
-sin preferenciales. Servicio exponencial o uniforme por servidor.
+Alcance actual: soporta las 8 variantes del contrato — método paralelo (1 estación) y método
+secuencial (N estaciones en serie o con rutas acíclicas basadas en salidas y probabilidades),
+con colas `unica`, `multiple` (`round_robin`, `aleatoria` y `mas_corta`) y `preferencial`,
+uno o varios servidores por estación, y servicio exponencial o uniforme por servidor.
 Cada estación visitada por un cliente genera un registro en su lista `paradas` ordenado
 cronológicamente. `tiempo_entrada_sistema` coincide con el inicio de espera de la primera
 estación (`paradas[0]`), y `tiempo_salida_sistema` es el instante de fin de servicio de la última
-estación (`paradas[-1]`). La variante con clientes preferenciales y colas `preferencial` lanza
-`NotImplementedError` hasta la Etapa 3; los datos inválidos del alcance soportado
-lanzan `ValueError`. El motor ejecuta `validar_config` al inicio.
+estación (`paradas[-1]`). Los datos inválidos contra el contrato lanzan `ValueError`. El motor
+ejecuta `validar_config` al inicio.
 
 Reglas aplicadas en estaciones con colas `multiple`:
 - **Asignación servidor–cola:** con múltiples servidores (`c > 1`, con `k = c`), la cola `i`
@@ -281,6 +280,18 @@ Reglas aplicadas en estaciones con colas `multiple`:
   en atención en su servidor dedicado (`en_espera + en_atencion`), evitando enviar clientes a un
   servidor ocupado mientras haya otro libre. Con servidor único (`c = 1`), el servidor es compartido
   y se cuenta únicamente a los clientes esperando en cada cola.
+
+Reglas aplicadas a clientes preferenciales y estaciones con colas `preferencial`:
+- **Sorteo de clase:** cuando `simulacion.clientes_preferenciales` está definido, al llegar cada
+  cliente al sistema se sortea `es_preferencial` con probabilidad `proporcion` usando el mismo
+  generador con semilla (`azar.random() < proporcion`). El cliente conserva esa clase en todo su
+  recorrido; si `clientes_preferenciales` no está definido, todos tienen `es_preferencial = false`
+  y no se consumen números adicionales del generador.
+- **Prioridad no expropiativa:** en una estación `preferencial`, los clientes preferenciales van
+  a `cola_asignada = 1` y los normales a `cola_asignada = 2`. Los `c` servidores son compartidos
+  y siempre atienden primero a quienes esperan en la cola 1 (FIFO dentro de cada cola), sin
+  interrumpir servicios ya iniciados. Las estaciones `unica` o `multiple` en el mismo sistema
+  ignoran la clase preferencial.
 
 Las llegadas pertenecen a un único proceso Poisson: se generan intervalos
 exponenciales de media `60 / lambda_por_hora`, en minutos. No se generan

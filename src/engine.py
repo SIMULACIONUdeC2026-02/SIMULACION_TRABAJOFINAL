@@ -1,6 +1,7 @@
 """Motor SimPy: simulación de eventos discretos para teoría de colas."""
 from __future__ import annotations
 
+from collections import deque
 import math
 import random
 import re
@@ -30,6 +31,13 @@ def _generar_servicio(conf_srv: tuple, azar: random.Random) -> float:
     if conf_srv[0] == 'exponencial':
         return azar.expovariate(1.0 / conf_srv[1])
     return azar.uniform(conf_srv[1], conf_srv[2])
+
+
+def _determinar_es_preferencial(proporcion: float | None, azar: random.Random) -> bool:
+    """Sortea si un cliente pertenece a la clase preferencial usando el generador dado."""
+    if proporcion is None:
+        return False
+    return azar.random() < proporcion
 
 
 def _elegir_cola_multiple(est_info: dict, azar: random.Random) -> int:
@@ -69,8 +77,8 @@ def ejecutar_simulacion(config: dict) -> dict:
 
     Soporta:
     - Método paralelo (1 estación) y método secuencial (N estaciones en serie o con rutas).
-    - Cola única FIFO o colas múltiples (round_robin, aleatoria, mas_corta) por estación,
-      con uno o varios servidores.
+    - Colas únicas FIFO, colas múltiples (round_robin, aleatoria, mas_corta) y colas
+      preferenciales (prioridad no expropiativa) por estación, con uno o varios servidores.
     - Servicio exponencial o uniforme por cada servidor.
 
     Las llegadas se generan hasta duracion_minutos (extremo excluido).
@@ -91,8 +99,12 @@ def ejecutar_simulacion(config: dict) -> dict:
         if metodo not in ('paralelo', 'secuencial'):
             raise NotImplementedError(f"Método '{metodo}' no soportado")
 
-        if simulacion.get('clientes_preferenciales') is not None:
-            raise NotImplementedError('Pendiente: Clientes preferenciales (Etapa 3)')
+        pref_cfg = simulacion.get('clientes_preferenciales')
+        proporcion_preferencial = None
+        if pref_cfg is not None:
+            proporcion_preferencial = _positivo(pref_cfg['proporcion'], 'clientes_preferenciales.proporcion')
+            if proporcion_preferencial >= 1:
+                raise ValueError('clientes_preferenciales.proporcion debe ser menor que 1')
 
         duracion = _positivo(simulacion['duracion_minutos'], 'duracion_minutos')
         llegada = simulacion['llegada']
@@ -114,11 +126,7 @@ def ejecutar_simulacion(config: dict) -> dict:
             cantidad_colas = colas.get('cantidad')
             reparticion = colas.get('reparticion')
 
-            if tipo_cola == 'preferencial':
-                raise NotImplementedError(
-                    f"Estación '{est_id}': colas preferenciales no soportadas aún (Etapa 3)"
-                )
-            if tipo_cola not in ('unica', 'multiple'):
+            if tipo_cola not in ('unica', 'multiple', 'preferencial'):
                 raise NotImplementedError(
                     f"Estación '{est_id}': tipo de cola '{tipo_cola}' no soportado"
                 )
@@ -140,6 +148,13 @@ def ejecutar_simulacion(config: dict) -> dict:
                 if reparticion not in ('round_robin', 'aleatoria', 'mas_corta'):
                     raise NotImplementedError(
                         f"Estación '{est_id}': repartición '{reparticion}' no soportada"
+                    )
+            if tipo_cola == 'preferencial':
+                if cantidad_colas != 2:
+                    raise ValueError(f"Estación '{est_id}': cola preferencial requiere exactamente 2 colas")
+                if proporcion_preferencial is None:
+                    raise ValueError(
+                        f"Estación '{est_id}': cola preferencial requiere definir clientes_preferenciales"
                     )
 
             servicios_config = []
@@ -183,7 +198,7 @@ def ejecutar_simulacion(config: dict) -> dict:
             almacen = simpy.Store(entorno, capacity=cant_srv)
             almacen.items.extend(range(1, cant_srv + 1))
             est_info['disponibles'] = almacen
-        else:
+        elif est_info['tipo_cola'] == 'multiple':
             est_info['turno'] = 0
             if cant_srv > 1:
                 est_info['recursos'] = [
@@ -192,6 +207,9 @@ def ejecutar_simulacion(config: dict) -> dict:
             else:
                 est_info['recurso_unico'] = simpy.Resource(entorno, capacity=1)
                 est_info['cola_de_req'] = {}
+        else:  # preferencial
+            est_info['recurso_prioridad'] = simpy.PriorityResource(entorno, capacity=cant_srv)
+            est_info['servidores_libres'] = deque(range(1, cant_srv + 1))
 
     eventos = []
 
@@ -208,7 +226,7 @@ def ejecutar_simulacion(config: dict) -> dict:
             yield entorno.timeout(tiempo)
             t_fin_servicio = entorno.now
             yield est_info['disponibles'].put(servidor)
-        else:
+        elif est_info['tipo_cola'] == 'multiple':
             cola_idx = _elegir_cola_multiple(est_info, azar)
             cola_asignada = cola_idx + 1
             if est_info['cantidad_servidores'] > 1:
@@ -234,6 +252,19 @@ def ejecutar_simulacion(config: dict) -> dict:
                     tiempo = _generar_servicio(est_info['servicios'][0], azar)
                     yield entorno.timeout(tiempo)
                     t_fin_servicio = entorno.now
+        else:  # preferencial
+            cola_asignada = 1 if cliente['es_preferencial'] else 2
+            prioridad = 0 if cliente['es_preferencial'] else 1
+            with est_info['recurso_prioridad'].request(priority=prioridad) as req:
+                yield req
+                servidor = est_info['servidores_libres'].popleft()
+                t_inicio_servicio = entorno.now
+                tiempo = _generar_servicio(est_info['servicios'][servidor - 1], azar)
+                try:
+                    yield entorno.timeout(tiempo)
+                finally:
+                    t_fin_servicio = entorno.now
+                    est_info['servidores_libres'].append(servidor)
 
         cliente['paradas'].append({
             'estacion_id': est_id,
@@ -268,7 +299,7 @@ def ejecutar_simulacion(config: dict) -> dict:
             yield entorno.timeout(intervalo)
             cliente = {
                 'cliente_id': len(eventos) + 1,
-                'es_preferencial': False,
+                'es_preferencial': _determinar_es_preferencial(proporcion_preferencial, azar),
                 'tiempo_entrada_sistema': entorno.now,
                 'tiempo_salida_sistema': None,
                 'paradas': [],
