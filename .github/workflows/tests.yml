@@ -1,0 +1,33 @@
+name: Tests
+
+# Corre la suite completa de pytest en cada PR y en cada push a main.
+# Sirve a todos los equipos: si un cambio rompe algo de otro equipo,
+# se ve en el PR antes de fusionar, no después.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+      - name: Correr pytest
+        run: python -m pytest -v

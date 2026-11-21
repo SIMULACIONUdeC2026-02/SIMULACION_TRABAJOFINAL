@@ -264,7 +264,7 @@ def test_metodo_invalido():
     assert_error(cfg, "simulacion.metodo")
 
 
-@pytest.mark.parametrize("valor", [0, -10, "480", None, True])
+@pytest.mark.parametrize("valor", [0, -10, "480", None, True, float("nan"), float("inf")])
 def test_duracion_invalida(valor):
     cfg = config_paralela()
     cfg["simulacion"]["duracion_minutos"] = valor
@@ -289,14 +289,14 @@ def test_llegada_no_poisson():
     assert_error(cfg, "simulacion.llegada.distribucion")
 
 
-@pytest.mark.parametrize("valor", [0, -1, "40", None])
+@pytest.mark.parametrize("valor", [0, -1, "40", None, float("nan"), float("inf")])
 def test_lambda_invalida(valor):
     cfg = config_paralela()
     cfg["simulacion"]["llegada"]["lambda_por_hora"] = valor
     assert_error(cfg, "simulacion.llegada.lambda_por_hora")
 
 
-@pytest.mark.parametrize("proporcion", [0, 1, 1.5, -0.1, "0.2", None])
+@pytest.mark.parametrize("proporcion", [0, 1, 1.5, -0.1, "0.2", None, float("nan"), float("inf")])
 def test_proporcion_de_preferenciales_invalida(proporcion):
     cfg = config_paralela()
     cfg["simulacion"]["clientes_preferenciales"] = {"proporcion": proporcion}
@@ -387,7 +387,7 @@ def test_tipo_de_servicio_invalido():
     assert_error(cfg, "servicio.tipo")
 
 
-@pytest.mark.parametrize("media", [0, -1, "2", None])
+@pytest.mark.parametrize("media", [0, -1, "2", None, float("nan"), float("inf")])
 def test_media_exponencial_invalida(media):
     cfg = config_paralela()
     cfg["estaciones"][0]["servidores"][0]["servicio"]["media"] = media
@@ -423,6 +423,19 @@ def test_uniforme_con_min_negativo():
         "tipo": "uniforme", "min": -1, "max": 2,
     }
     assert_error(cfg, "servicio.min")
+
+
+@pytest.mark.parametrize("limite, valor", [
+    ("min", float("nan")), ("min", float("inf")),
+    ("max", float("nan")), ("max", float("inf")),
+])
+def test_uniforme_con_limite_no_finito(limite, valor):
+    """NaN e infinito no son límites válidos para una uniforme."""
+    cfg = config_paralela()
+    servicio = {"tipo": "uniforme", "min": 1, "max": 2}
+    servicio[limite] = valor
+    cfg["estaciones"][0]["servidores"][0]["servicio"] = servicio
+    assert_error(cfg, f"servicio.{limite}")
 
 
 # --------------------------------------------------------------------------
@@ -536,7 +549,7 @@ def test_salida_con_destino_inexistente():
     assert_error(cfg, "que no existe")
 
 
-@pytest.mark.parametrize("probabilidad", [0, -0.5, 1.5, "1", None])
+@pytest.mark.parametrize("probabilidad", [0, -0.5, 1.5, "1", None, float("nan"), float("inf")])
 def test_probabilidad_de_salida_invalida(probabilidad):
     cfg = config_secuencial()
     cfg["estaciones"][0]["salidas"][0]["probabilidad"] = probabilidad

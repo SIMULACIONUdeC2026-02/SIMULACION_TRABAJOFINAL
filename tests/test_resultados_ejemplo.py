@@ -5,7 +5,6 @@ contrato de salida (docs/contratos.md) y que es coherente con la
 configuración con la que va emparejado. Así Equipo 3 y Equipo 4 pueden
 trabajar con datos de prueba mientras el motor no está listo.
 """
-from fsspec import config
 import json
 from pathlib import Path
 

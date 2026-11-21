@@ -9,6 +9,8 @@ la estructura del JSON, hay que actualizar ese documento y avisar a Engine,
 Métricas y UI.
 """
 
+import math
+
 METODOS = ("paralelo", "secuencial")  # Método 1 / Método 2
 DISTRIBUCIONES_SERVICIO = ("exponencial", "uniforme")
 TIPOS_COLA = ("unica", "multiple", "preferencial")
@@ -72,7 +74,16 @@ def validar_config(config: dict) -> list[str]:
 # --------------------------------------------------------------------------
 
 def _es_numero(valor) -> bool:
-    return isinstance(valor, (int, float)) and not isinstance(valor, bool)
+    """True si *valor* es un número real finito (int o float, no bool).
+
+    Rechaza NaN e infinito: Python los acepta como float (y json.loads lee
+    "NaN" e "Infinity"), pero no tienen sentido como duración, tasa, media o
+    probabilidad. Por ejemplo, NaN pasaba el chequeo "<= 0" porque cualquier
+    comparación con NaN da False, y llegaba al motor.
+    """
+    if isinstance(valor, bool) or not isinstance(valor, (int, float)):
+        return False
+    return math.isfinite(valor)
 
 
 def _es_entero(valor) -> bool:
