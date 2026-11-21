@@ -19,6 +19,12 @@ Regla de corte en T = duracion_total_minutos:
   no cuenta como atendido ni entra en W ni en la Ley de Little.
 - Las métricas que suman tiempo (integración de N(t), ocupación de
   servidores) recortan cada intervalo a [0, T].
+Vocabulario (igual que el contrato y el motor):
+- estación: se identifica con su "id" de texto en la config
+  (parada["estacion_id"], clave de "por_estacion"), p. ej. "cajeros".
+- servidor: se identifica con su posición 1, 2, ... en la lista "servidores"
+  de la estación (parada["servidor_asignado"], clave "servidor_N"). No se usa
+  el "id" de texto del servidor de la config.
 Las fórmulas están explicadas en docs/metricas.md.
 """
 
@@ -177,6 +183,111 @@ def clientes_promedio_por_integracion(eventos_clientes: list[dict],
         for c in eventos_clientes
     )
     return area / duracion_total_minutos
+
+# --------------------------------------------------------------------------
+# Por estacion y por servidor (Issue #15)
+# --------------------------------------------------------------------------
+def paradas_por_estacion(eventos_clientes: list[dict], estacion_id: str) -> list[dict]:
+    """
+    Reúne las paradas de todos los clientes en una estación.
+
+    Args:
+        eventos_clientes: la lista de eventos de clientes.
+        estacion_id: el "id" de texto de la estación a filtrar.
+
+    Returns:
+        Lista de paradas (contrato de salida) cuyo "estacion_id" coincide.
+    """
+    return [p for cliente in eventos_clientes
+            for p in cliente.get("paradas", [])
+            if p.get("estacion_id") == estacion_id]
+
+
+def calculo_ocioso_servidor(eventos_clientes: list[dict], estacion_id: str,
+                            servidor: int,
+                            duracion_total_minutos: float) -> dict:
+    """
+    Utilización y tiempo ocioso de un servidor de una estación.
+
+    El tiempo ocioso es la suma de los tiempos muertos del servidor: desde 0
+    hasta su primer inicio de servicio, entre el fin de un servicio y el inicio
+    del siguiente (espera por la llegada del próximo cliente) y desde su último
+    fin de servicio hasta T. Equivale a T menos los minutos atendiendo.
+    Los intervalos se recortan a [0, T]; un servicio sin fin cuenta hasta T.
+
+    Args:
+        eventos_clientes: lista de eventos según el contrato de salida.
+        estacion_id: "id" de texto de la estación.
+        servidor: posición del servidor (1, 2, ...) en la lista "servidores"
+            de esa estación; es el valor de "servidor_asignado" en las paradas.
+        duracion_total_minutos: duración simulada (T), mayor que 0.
+
+    Returns:
+        {"utilizacion", "tiempo_ocioso_minutos", "clientes_atendidos"},
+        la forma de una entrada de "por_servidor" en el contrato.
+    """
+    _validar_duracion(duracion_total_minutos)
+    T = duracion_total_minutos
+    servicios = sorted(
+        (p for p in paradas_por_estacion(eventos_clientes, estacion_id)
+         if p.get("servidor_asignado") == servidor
+         and p.get("tiempo_inicio_servicio") is not None),
+        key=lambda p: p["tiempo_inicio_servicio"],
+    )
+
+    ocioso = 0.0
+    cursor = 0.0  # instante hasta el que el servidor ya está contabilizado
+    atendidos = 0
+    for p in servicios:
+        inicio = max(p["tiempo_inicio_servicio"], 0.0)
+        fin = p.get("tiempo_fin_servicio")
+        fin = T if fin is None else min(fin, T)
+        if inicio >= T:
+            break
+        if inicio > cursor:
+            ocioso += inicio - cursor  # tiempo muerto antes de este servicio
+        cursor = max(cursor, fin)
+        if p.get("tiempo_fin_servicio") is not None and p["tiempo_fin_servicio"] <= T:
+            atendidos += 1
+    ocioso += max(T - cursor, 0.0)  # tiempo muerto final
+
+    return {
+        "utilizacion": (T - ocioso) / T,
+        "tiempo_ocioso_minutos": ocioso,
+        "clientes_atendidos": atendidos,
+    }
+
+
+def calculo_ocioso_estacion(eventos_clientes: list[dict], config: dict,
+                            estacion_id: str,
+                            duracion_total_minutos: float) -> dict:
+    """
+    Tiempo ocioso y utilización de todos los servidores de una estación.
+
+    Args:
+        eventos_clientes: lista de eventos según el contrato de salida.
+        config: configuración usada (da la lista "servidores" de la estación).
+        estacion_id: "id" de texto de la estación.
+        duracion_total_minutos: duración simulada (T), mayor que 0.
+
+    Returns:
+        El bloque "por_servidor" del contrato:
+        {"servidor_1": {...}, "servidor_2": {...}, ...}, donde N es la posición
+        del servidor en la estación. Incluye también a los servidores que no atendieron a nadie (ociosos todo el tiempo).
+
+    Raises:
+        ValueError: si la estación no existe en la configuración.
+    """
+    estacion = next((e for e in config.get("estaciones", [])
+                     if e.get("id") == estacion_id), None)
+    if estacion is None:
+        raise ValueError(f"La estación {estacion_id!r} no existe en la configuración")
+    return {
+        f"servidor_{i}": calculo_ocioso_servidor(
+            eventos_clientes, estacion_id, i, duracion_total_minutos)
+        for i in range(1, len(estacion.get("servidores", [])) + 1)
+    }
+
 
 
 # --------------------------------------------------------------------------
