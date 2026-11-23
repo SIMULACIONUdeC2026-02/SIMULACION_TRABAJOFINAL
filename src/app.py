@@ -158,12 +158,93 @@ def construir_config(
     return {"simulacion": simulacion, "estaciones": estaciones}
 
 
-def mostrar_resultados() -> None:
-    """Deja la vista lista para mostrar resultados cuando se conecte el motor."""
+def crear_grafica_comparacion_colas(
+    por_cola: dict[str, dict[str, float | int]] | None = None,
+    cola_mas_larga: str | None = None,
+) -> go.Figure:
+    """
+    Crea una gráfica de barras en Plotly para comparar las colas de una estación.
+
+    Compara la longitud máxima y promedio de cada cola, y resalta visualmente
+    cuál es la cola más larga detectada por la simulación.
+
+    Args:
+        por_cola: Diccionario con métricas de cada cola
+            (ej. {'cola_1': {'longitud_promedio': 1.5, 'longitud_maxima': 4}}).
+        cola_mas_larga: Clave de la cola con mayor longitud (ej. 'cola_1').
+
+    Returns:
+        go.Figure: Gráfica interactiva de Plotly con las barras comparativas.
+    """
+    if not por_cola:
+        return go.Figure().update_layout(
+            xaxis_title="Cola",
+            yaxis_title="Longitud máxima",
+        )
+
+    nombres_colas = list(por_cola.keys())
+    maximos = [float(por_cola[c].get("longitud_maxima", 0)) for c in nombres_colas]
+    promedios = [float(por_cola[c].get("longitud_promedio", 0.0)) for c in nombres_colas]
+
+    # Resalta la barra de la cola más larga con un color distintivo
+    colores_max = [
+        "#EF553B" if c == cola_mas_larga else "#636EFA"
+        for c in nombres_colas
+    ]
+    colores_prom = [
+        "#FFA15A" if c == cola_mas_larga else "#00CC96"
+        for c in nombres_colas
+    ]
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        name="Longitud máxima",
+        x=nombres_colas,
+        y=maximos,
+        text=[f"{v:g} (Mayor)" if c == cola_mas_larga else f"{v:g}" for c, v in zip(nombres_colas, maximos)],
+        textposition="auto",
+        marker_color=colores_max,
+        hovertemplate="<b>%{x}</b><br>Longitud máxima: %{y}<extra></extra>",
+    ))
+    fig.add_trace(go.Bar(
+        name="Longitud promedio",
+        x=nombres_colas,
+        y=promedios,
+        text=[f"{v:.2f}" for v in promedios],
+        textposition="auto",
+        marker_color=colores_prom,
+        hovertemplate="<b>%{x}</b><br>Longitud promedio: %{y:.3f}<extra></extra>",
+    ))
+
+    titulo = f"Comparación de colas (Mayor: {cola_mas_larga})" if cola_mas_larga else "Comparación de colas"
+    fig.update_layout(
+        title=titulo,
+        barmode="group",
+        xaxis_title="Cola",
+        yaxis_title="Clientes",
+        legend_title="Métrica",
+    )
+    return fig
+
+
+def mostrar_resultados(resultado: dict | None = None) -> None:
+    """Muestra los resultados de la simulación o vistas vacías si no hay datos."""
+    if resultado is None and "resultado" in st.session_state:
+        resultado = st.session_state["resultado"]
+
+    metricas = {}
+    if resultado and isinstance(resultado, dict):
+        metricas = resultado.get("resultado", resultado).get("metricas", {})
+
+    sistema = metricas.get("sistema_completo", {})
+    t_sistema = sistema.get("tiempo_promedio_en_sistema")
+    c_sistema = sistema.get("clientes_promedio_en_sistema")
+    atendidos = sistema.get("clientes_totales_atendidos")
+
     metrica_1, metrica_2, metrica_3 = st.columns(3)
-    metrica_1.metric("Tiempo promedio en sistema", "—")
-    metrica_2.metric("Clientes promedio en sistema", "—")
-    metrica_3.metric("Clientes atendidos", "—")
+    metrica_1.metric("Tiempo promedio en sistema", f"{t_sistema:.2f} min" if t_sistema is not None else "—")
+    metrica_2.metric("Clientes promedio en sistema", f"{c_sistema:.2f}" if c_sistema is not None else "—")
+    metrica_3.metric("Clientes atendidos", str(atendidos) if atendidos is not None else "—")
 
     st.subheader("Resumen por estación")
     st.dataframe(pd.DataFrame(columns=[
@@ -174,9 +255,28 @@ def mostrar_resultados() -> None:
     colas, servidores = st.columns(2)
     with colas:
         st.subheader("Comparación de colas")
-        st.plotly_chart(
-            go.Figure().update_layout(xaxis_title="Cola", yaxis_title="Longitud máxima"),
-        )
+        por_estacion = metricas.get("por_estacion", {})
+        if por_estacion:
+            estaciones_disponibles = list(por_estacion.keys())
+            if len(estaciones_disponibles) > 1:
+                estacion_sel = st.selectbox(
+                    "Estación para comparar colas",
+                    estaciones_disponibles,
+                    key="selector_estacion_colas",
+                )
+            else:
+                estacion_sel = estaciones_disponibles[0]
+            datos_estacion = por_estacion.get(estacion_sel, {})
+            por_cola = datos_estacion.get("por_cola", {})
+            cola_mas_larga = datos_estacion.get("cola_mas_larga")
+            fig_colas = crear_grafica_comparacion_colas(por_cola, cola_mas_larga)
+            st.plotly_chart(fig_colas)
+            if cola_mas_larga:
+                st.caption(f"Cola más larga en {estacion_sel}: **{cola_mas_larga}**")
+        else:
+            fig_vacia = crear_grafica_comparacion_colas()
+            st.plotly_chart(fig_vacia)
+
     with servidores:
         st.subheader("Utilización por servidor")
         st.plotly_chart(

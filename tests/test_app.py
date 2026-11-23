@@ -2,6 +2,7 @@ import json
 
 from streamlit.testing.v1 import AppTest
 
+from src.app import crear_grafica_comparacion_colas
 from src.config import validar_config
 
 
@@ -141,3 +142,30 @@ def test_formulario_muestra_errores_del_validador():
     generar_json(app)
 
     assert any("estaciones[0].id" in error.value for error in app.error)
+
+
+def test_crear_grafica_comparacion_colas_vacia():
+    fig = crear_grafica_comparacion_colas()
+    assert len(fig.data) == 0
+    assert fig.layout.xaxis.title.text == "Cola"
+    assert fig.layout.yaxis.title.text == "Longitud máxima"
+
+
+def test_crear_grafica_comparacion_colas_con_datos_resalta_mayor():
+    por_cola = {
+        "cola_1": {"longitud_promedio": 0.0333, "longitud_maxima": 1},
+        "cola_2": {"longitud_promedio": 0.1, "longitud_maxima": 1},
+    }
+    cola_mas_larga = "cola_2"
+    fig = crear_grafica_comparacion_colas(por_cola, cola_mas_larga)
+
+    assert len(fig.data) == 2
+    trace_max, trace_prom = fig.data[0], fig.data[1]
+    assert trace_max.name == "Longitud máxima"
+    assert trace_prom.name == "Longitud promedio"
+    assert list(trace_max.x) == ["cola_1", "cola_2"]
+    assert list(trace_max.y) == [1.0, 1.0]
+    # La cola más larga ("cola_2") tiene color diferencial
+    assert trace_max.marker.color[0] != trace_max.marker.color[1]
+    assert "Mayor" in trace_max.text[1]
+    assert fig.layout.title.text == "Comparación de colas (Mayor: cola_2)"
