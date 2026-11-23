@@ -18,9 +18,49 @@ def test_app_muestra_formulario_y_resultados_vacios():
     assert app.button(key="generar_configuracion")
     assert any(tab.label == "Resultados" for tab in app.tabs)
     assert app.dataframe[0].value.empty
-    assert len(app.get("plotly_chart")) == 2
+    assert len(app.get("plotly_chart")) == 1
     assert all(not json.loads(chart.proto.spec)["data"] for chart in app.get("plotly_chart"))
     assert [metric.value for metric in app.metric] == ["—", "—", "—"]
+    assert app.button(key="simular")
+    assert any("Ejecuta una simulación" in element.value for element in app.info)
+
+
+def test_vista_muestra_porcentajes_y_identifica_servidor_saturado():
+    app = AppTest.from_file("../src/app.py", default_timeout=15).run()
+    app.session_state["resultados_simulacion"] = {
+        "resultado": {
+            "metricas": {
+                "por_estacion": {
+                    "cajeros": {
+                        "por_servidor": {
+                            "servidor_1": {"utilizacion": 0.754},
+                            "servidor_2": {"utilizacion": 0.90},
+                            "servidor_3": {"utilizacion": 0.85},
+                        }
+                    }
+                }
+            }
+        }
+    }
+    app.run()
+
+    assert {"75.4%", "90.0%", "85.0%"}.issubset(
+        {metric.value for metric in app.metric}
+    )
+    assert any("servidor_2 · SATURADO" in metric.label for metric in app.metric)
+    assert not any("servidor_3 · SATURADO" in metric.label for metric in app.metric)
+
+
+def test_boton_simular_genera_utilizacion_por_servidor():
+    app = AppTest.from_file("../src/app.py", default_timeout=30).run()
+    app.button(key="simular").click().run()
+
+    assert not app.exception
+    assert any("Simulación completada." in elemento.value for elemento in app.success)
+    resultado = app.session_state["resultados_simulacion"]
+    por_servidor = resultado["metricas"]["por_estacion"]["cajeros"]["por_servidor"]
+    assert list(por_servidor) == ["servidor_1", "servidor_2", "servidor_3"]
+    assert all(0 <= datos["utilizacion"] <= 1 for datos in por_servidor.values())
 
 
 def test_formulario_genera_configuracion_paralela_valida():

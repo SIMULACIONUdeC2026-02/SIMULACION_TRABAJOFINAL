@@ -3,7 +3,9 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from config import validar_config
+from src.config import validar_config
+from src.engine import ejecutar_simulacion
+from src.metrics import calculo_ocioso_estacion
 
 
 TIPOS_COLA = {"Única": "unica", "Múltiple": "multiple", "Preferencial": "preferencial"}
@@ -158,8 +160,63 @@ def construir_config(
     return {"simulacion": simulacion, "estaciones": estaciones}
 
 
-def mostrar_resultados() -> None:
-    """Deja la vista lista para mostrar resultados cuando se conecte el motor."""
+def mostrar_utilizacion_servidores(resultados: dict | None) -> None:
+    """Muestra la utilización de cada servidor desde el contrato de resultados."""
+    st.subheader("Utilización por servidor")
+    if resultados is None or resultados == {}:
+        st.info("Ejecuta una simulación para ver la utilización por servidor.")
+        return
+    if not isinstance(resultados, dict):
+        st.warning("El resultado de la simulación no tiene el formato esperado.")
+        return
+
+    resultado = resultados.get("resultado", resultados)
+    if not isinstance(resultado, dict):
+        st.warning("El resultado de la simulación no tiene el formato esperado.")
+        return
+
+    metricas = resultado.get("metricas")
+    por_estacion = metricas.get("por_estacion") if isinstance(metricas, dict) else None
+    if not isinstance(por_estacion, dict) or not por_estacion:
+        st.info("No hay datos de utilización por servidor para mostrar.")
+        return
+
+    for estacion_id, metricas_estacion in por_estacion.items():
+        st.markdown(f"**{estacion_id}**")
+        por_servidor = (
+            metricas_estacion.get("por_servidor")
+            if isinstance(metricas_estacion, dict) else None
+        )
+        if not isinstance(por_servidor, dict) or not por_servidor:
+            st.caption("Sin datos de servidores para esta estación.")
+            continue
+
+        for servidor_id, metricas_servidor in por_servidor.items():
+            utilizacion = (
+                metricas_servidor.get("utilizacion")
+                if isinstance(metricas_servidor, dict) else None
+            )
+            if (
+                isinstance(utilizacion, bool)
+                or not isinstance(utilizacion, (int, float))
+                or not 0 <= utilizacion <= 1
+            ):
+                st.warning(f"Utilización inválida para {estacion_id} / {servidor_id}.")
+                continue
+
+            porcentaje = utilizacion * 100
+            saturado = utilizacion > 0.85
+            etiqueta = f"{servidor_id}{' · SATURADO' if saturado else ''}"
+            columna_metrica, columna_barra = st.columns([1, 3])
+            columna_metrica.metric(etiqueta, f"{porcentaje:.1f}%")
+            columna_barra.progress(
+                utilizacion,
+                text="Saturado (> 85 %)" if saturado else f"{porcentaje:.1f}%",
+            )
+
+
+def mostrar_resultados(resultados: dict | None = None) -> None:
+    """Muestra el resumen y las vistas de resultados disponibles."""
     metrica_1, metrica_2, metrica_3 = st.columns(3)
     metrica_1.metric("Tiempo promedio en sistema", "—")
     metrica_2.metric("Clientes promedio en sistema", "—")
@@ -171,17 +228,11 @@ def mostrar_resultados() -> None:
         "Cola promedio", "Cola máxima", "Cola más larga",
     ]), hide_index=True, width="stretch")
 
-    colas, servidores = st.columns(2)
-    with colas:
-        st.subheader("Comparación de colas")
-        st.plotly_chart(
-            go.Figure().update_layout(xaxis_title="Cola", yaxis_title="Longitud máxima"),
-        )
-    with servidores:
-        st.subheader("Utilización por servidor")
-        st.plotly_chart(
-            go.Figure().update_layout(xaxis_title="Servidor", yaxis_title="Utilización (%)"),
-        )
+    st.subheader("Comparación de colas")
+    st.plotly_chart(
+        go.Figure().update_layout(xaxis_title="Cola", yaxis_title="Longitud máxima"),
+    )
+    mostrar_utilizacion_servidores(resultados)
 
 
 def main() -> None:
@@ -244,11 +295,11 @@ def main() -> None:
                 key="proporcion_preferencial",
             )
 
+        config = construir_config(
+            nombre, metodo, duracion, semilla, llegadas, estaciones,
+            estacion_entrada, proporcion_preferencial,
+        )
         if st.button("Generar JSON", key="generar_configuracion"):
-            config = construir_config(
-                nombre, metodo, duracion, semilla, llegadas, estaciones,
-                estacion_entrada, proporcion_preferencial,
-            )
             errores = validar_config(config)
             if errores:
                 st.error("Configuración inválida:\n" + "\n".join(f"- {error}" for error in errores))
@@ -257,8 +308,33 @@ def main() -> None:
             st.subheader("JSON de entrada")
             st.json(config)
 
+        if st.button("Simular", key="simular"):
+            st.session_state.pop("resultados_simulacion", None)
+            errores = validar_config(config)
+            if errores:
+                st.error("Configuración inválida:\n" + "\n".join(f"- {error}" for error in errores))
+            else:
+                try:
+                    resultado = ejecutar_simulacion(config)
+                    por_estacion = {
+                        estacion["id"]: {
+                            "por_servidor": calculo_ocioso_estacion(
+                                resultado["eventos_clientes"],
+                                config,
+                                estacion["id"],
+                                resultado["duracion_total_minutos"],
+                            )
+                        }
+                        for estacion in estaciones
+                    }
+                    resultado["metricas"] = {"por_estacion": por_estacion}
+                    st.session_state["resultados_simulacion"] = resultado
+                    st.success("Simulación completada.")
+                except (ValueError, NotImplementedError) as error:
+                    st.error(f"No se pudo ejecutar la simulación: {error}")
+
     with resultados_tab:
-        mostrar_resultados()
+        mostrar_resultados(st.session_state.get("resultados_simulacion"))
 
 
 if __name__ == "__main__":
