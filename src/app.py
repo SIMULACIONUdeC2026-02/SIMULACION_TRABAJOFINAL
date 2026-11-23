@@ -166,7 +166,8 @@ def crear_grafica_comparacion_colas(
     Crea una gráfica de barras en Plotly para comparar las colas de una estación.
 
     Compara la longitud máxima y promedio de cada cola, y resalta visualmente
-    cuál es la cola más larga detectada por la simulación.
+    cuál es la cola más larga detectada por la simulación con un borde en sus
+    dos barras y marcando la etiqueta en el eje X.
 
     Args:
         por_cola: Diccionario con métricas de cada cola
@@ -179,20 +180,25 @@ def crear_grafica_comparacion_colas(
     if not por_cola:
         return go.Figure().update_layout(
             xaxis_title="Cola",
-            yaxis_title="Longitud máxima",
+            yaxis_title="Clientes",
         )
 
     nombres_colas = list(por_cola.keys())
     maximos = [float(por_cola[c].get("longitud_maxima", 0)) for c in nombres_colas]
     promedios = [float(por_cola[c].get("longitud_promedio", 0.0)) for c in nombres_colas]
 
-    # Resalta la barra de la cola más larga con un color distintivo
-    colores_max = [
-        "#EF553B" if c == cola_mas_larga else "#636EFA"
+    # Resalta la barra de la cola más larga con un borde distintivo sin alterar
+    # el color de la métrica (para que coincida con la leyenda).
+    bordes_color = [
+        "#1F1F1F" if c == cola_mas_larga else "rgba(0,0,0,0)"
         for c in nombres_colas
     ]
-    colores_prom = [
-        "#FFA15A" if c == cola_mas_larga else "#00CC96"
+    bordes_ancho = [
+        2.5 if c == cola_mas_larga else 0
+        for c in nombres_colas
+    ]
+    etiquetas_x = [
+        f"{c} ★" if c == cola_mas_larga else c
         for c in nombres_colas
     ]
 
@@ -201,9 +207,11 @@ def crear_grafica_comparacion_colas(
         name="Longitud máxima",
         x=nombres_colas,
         y=maximos,
-        text=[f"{v:g} (Mayor)" if c == cola_mas_larga else f"{v:g}" for c, v in zip(nombres_colas, maximos)],
+        text=[f"{v:g}" for v in maximos],
         textposition="auto",
-        marker_color=colores_max,
+        marker_color="#636EFA",
+        marker_line_color=bordes_color,
+        marker_line_width=bordes_ancho,
         hovertemplate="<b>%{x}</b><br>Longitud máxima: %{y}<extra></extra>",
     ))
     fig.add_trace(go.Bar(
@@ -212,7 +220,9 @@ def crear_grafica_comparacion_colas(
         y=promedios,
         text=[f"{v:.2f}" for v in promedios],
         textposition="auto",
-        marker_color=colores_prom,
+        marker_color="#00CC96",
+        marker_line_color=bordes_color,
+        marker_line_width=bordes_ancho,
         hovertemplate="<b>%{x}</b><br>Longitud promedio: %{y:.3f}<extra></extra>",
     ))
 
@@ -220,7 +230,12 @@ def crear_grafica_comparacion_colas(
     fig.update_layout(
         title=titulo,
         barmode="group",
-        xaxis_title="Cola",
+        xaxis=dict(
+            title="Cola",
+            tickmode="array",
+            tickvals=nombres_colas,
+            ticktext=etiquetas_x,
+        ),
         yaxis_title="Clientes",
         legend_title="Métrica",
     )

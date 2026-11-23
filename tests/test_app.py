@@ -148,7 +148,7 @@ def test_crear_grafica_comparacion_colas_vacia():
     fig = crear_grafica_comparacion_colas()
     assert len(fig.data) == 0
     assert fig.layout.xaxis.title.text == "Cola"
-    assert fig.layout.yaxis.title.text == "Longitud máxima"
+    assert fig.layout.yaxis.title.text == "Clientes"
 
 
 def test_crear_grafica_comparacion_colas_con_datos_resalta_mayor():
@@ -165,7 +165,23 @@ def test_crear_grafica_comparacion_colas_con_datos_resalta_mayor():
     assert trace_prom.name == "Longitud promedio"
     assert list(trace_max.x) == ["cola_1", "cola_2"]
     assert list(trace_max.y) == [1.0, 1.0]
-    # La cola más larga ("cola_2") tiene color diferencial
-    assert trace_max.marker.color[0] != trace_max.marker.color[1]
-    assert "Mayor" in trace_max.text[1]
+
+    # Los colores por métrica son uniformes y coinciden con la leyenda
+    assert trace_max.marker.color == "#636EFA"
+    assert trace_prom.marker.color == "#00CC96"
+
+    # La cola más larga ("cola_2") se resalta con un borde en sus dos barras
+    assert trace_max.marker.line.width[1] > 0
+    assert trace_prom.marker.line.width[1] > 0
+    assert trace_max.marker.line.width[0] == 0
+    assert trace_prom.marker.line.width[0] == 0
+
+    # No se incluye '(Mayor)' sobre el valor de la barra para evitar confusiones
+    assert "Mayor" not in trace_max.text[0]
+    assert "Mayor" not in trace_max.text[1]
+    assert list(trace_max.text) == ["1", "1"]
+
+    # Se marca la cola mayor en el eje X
+    assert fig.layout.xaxis.ticktext[1] == "cola_2 ★"
     assert fig.layout.title.text == "Comparación de colas (Mayor: cola_2)"
+    assert fig.layout.yaxis.title.text == "Clientes"
