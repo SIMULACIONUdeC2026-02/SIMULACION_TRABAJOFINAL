@@ -369,6 +369,7 @@ def main() -> None:
                 st.error("Configuración inválida:\n" + "\n".join(f"- {error}" for error in errores))
             else:
                 st.success("Configuración válida.")
+                st.session_state["cargar_resultados"] = True #Temporal para cargar los resultados a la tabla 
             st.subheader("JSON de entrada")
             st.json(config)
 
