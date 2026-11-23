@@ -132,7 +132,7 @@ def test_ejercicio_5_12_convergencia_teorica():
         'simulacion': {
             'nombre': 'Ejercicio 5.12 - Dos estaciones en serie',
             'metodo': 'secuencial',
-            'duracion_minutos': 20000,
+            'duracion_minutos': 200000,
             'semilla': 12345,
             'llegada': {
                 'distribucion': 'poisson',
