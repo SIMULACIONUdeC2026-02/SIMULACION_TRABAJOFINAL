@@ -150,6 +150,26 @@ def test_tabla_por_estacion_con_ejemplo_02():
     tabla = tabla_por_estacion(metricas)
     assert list(tabla["Estación"]) == ["triaje", "atencion"]
     assert tabla.loc[1, "Cola más larga"] == "cola_2"
+def test_boton_simular_guarda_resultado_real_en_session_state():
+    app = AppTest.from_file("../src/app.py", default_timeout=15).run()
+    app.button(key="ejecutar_simulacion").click().run()
+
+    assert not app.exception
+    assert not app.error
+    salida = app.session_state["resultado"]
+    assert set(salida) == {"resultado"}
+    eventos = salida["resultado"]["eventos_clientes"]
+    assert eventos
+    assert eventos[0]["paradas"][0]["estacion_id"] == "cajeros"
+
+
+def test_boton_simular_con_config_invalida_muestra_error():
+    app = AppTest.from_file("../src/app.py", default_timeout=15).run()
+    app.text_input(key="estacion_1_id").set_value("")
+    app.button(key="ejecutar_simulacion").click().run()
+
+    assert "resultado" not in app.session_state
+    assert any("estaciones[0].id" in error.value for error in app.error)
 
 
 def test_crear_grafica_comparacion_colas_vacia():

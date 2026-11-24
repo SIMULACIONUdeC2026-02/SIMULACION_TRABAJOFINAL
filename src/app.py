@@ -1,10 +1,19 @@
 """Interfaz Streamlit para configurar y consultar simulaciones de colas."""
-import json
+import sys
+from pathlib import Path
+
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-from config import validar_config
-from pathlib import Path
+
+# `streamlit run src/app.py` solo agrega src/ al path; el motor importa como `src.*`,
+# así que se agrega también la raíz del proyecto.
+_RAIZ_PROYECTO = str(Path(__file__).resolve().parents[1])
+if _RAIZ_PROYECTO not in sys.path:
+    sys.path.insert(0, _RAIZ_PROYECTO)
+
+from config import validar_config  # noqa: E402
+from src.engine import simular  # noqa: E402
 
 
 TIPOS_COLA = {"Única": "unica", "Múltiple": "multiple", "Preferencial": "preferencial"}
@@ -377,11 +386,13 @@ def main() -> None:
                 key="proporcion_preferencial",
             )
 
-        if st.button("Generar JSON", key="generar_configuracion"):
-            config = construir_config(
-                nombre, metodo, duracion, semilla, llegadas, estaciones,
-                estacion_entrada, proporcion_preferencial,
-            )
+        config = construir_config(
+            nombre, metodo, duracion, semilla, llegadas, estaciones,
+            estacion_entrada, proporcion_preferencial,
+        )
+
+        col_generar, col_simular = st.columns(2)
+        if col_generar.button("Generar JSON", key="generar_configuracion"):
             errores = validar_config(config)
             if errores:
                 st.error("Configuración inválida:\n" + "\n".join(f"- {error}" for error in errores))
@@ -391,8 +402,30 @@ def main() -> None:
             st.subheader("JSON de entrada")
             st.json(config)
 
+        if col_simular.button("Simular", key="ejecutar_simulacion", type="primary"):
+            ejecutar_y_guardar(config)
+
     with resultados_tab:
         mostrar_resultados()
+
+
+def ejecutar_y_guardar(config: dict) -> None:
+    """Corre la simulación completa y guarda {"resultado": ...} en st.session_state["resultado"]."""
+    try:
+        salida = simular(config)
+    except (ValueError, NotImplementedError, RuntimeError) as error:
+        st.session_state.pop("resultado", None)
+        st.error(f"No se pudo simular:\n{error}")
+        return
+
+    st.session_state["resultado"] = salida
+    resultado = salida["resultado"]
+    st.success(
+        f"Simulación lista: {len(resultado['eventos_clientes'])} clientes atendidos en "
+        f"{resultado['duracion_total_minutos']:.2f} min. Revisa la pestaña Resultados."
+    )
+    if "metricas" not in resultado:
+        st.info("Las métricas aún no están disponibles (pendiente Issue #17 de Métricas).")
 
 
 if __name__ == "__main__":

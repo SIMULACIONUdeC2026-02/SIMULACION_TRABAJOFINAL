@@ -256,6 +256,26 @@ Devuelve directamente `simulacion_id`, `duracion_total_minutos` y
 `eventos_clientes`. No agrega `metricas` ni el envoltorio `resultado`;
 quien integra los módulos arma ese envoltorio al exportar el contrato completo.
 
+### `simular(config)`: recorrido completo para la interfaz
+
+`from src.engine import simular`. Es lo que llama la interfaz (botón **Simular**
+de `src/app.py`) y `examples/ejecutar_engine.py`. Hace todo el recorrido:
+
+1. `validar_config(config)`: si hay errores, lanza `ValueError` con la lista completa.
+2. `ejecutar_simulacion(config)`: genera los eventos crudos.
+3. `calcular_metricas(eventos_clientes, config, duracion_total_minutos)`: agrega el
+   bloque `metricas`. Mientras Métricas no lo implemente (#17) lanza
+   `NotImplementedError`; `simular` lo atrapa y devuelve el resultado **sin** `metricas`.
+4. `validar_resultado(resultado, config)`: si la salida no respeta el contrato lanza
+   `RuntimeError` (sería un error interno del motor, no de la configuración).
+5. Devuelve `{"resultado": resultado}`, el mismo formato de
+   `examples/resultados_ejemplo/`. La interfaz lo guarda en
+   `st.session_state["resultado"]`.
+
+Para probar cualquiera de los 8 ejemplos desde consola:
+`python -m examples.ejecutar_engine 05` (número, nombre del ejemplo o ruta a un JSON;
+sin argumento corre el `01`, y `--lista` muestra los disponibles).
+
 Alcance actual: soporta las 8 variantes del contrato — método paralelo (1 estación) y método
 secuencial (N estaciones en serie o con rutas acíclicas basadas en salidas y probabilidades),
 con colas `unica`, `multiple` (`round_robin`, `aleatoria` y `mas_corta`) y `preferencial`,
