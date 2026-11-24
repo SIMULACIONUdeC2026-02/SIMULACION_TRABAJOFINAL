@@ -1,9 +1,10 @@
 """Interfaz Streamlit para configurar y consultar simulaciones de colas."""
+import json
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-import json
 from config import validar_config
+from pathlib import Path
 
 
 TIPOS_COLA = {"Única": "unica", "Múltiple": "multiple", "Preferencial": "preferencial"}
@@ -242,6 +243,24 @@ def crear_grafica_comparacion_colas(
     return fig
 
 
+def tabla_por_estacion(metricas: dict) -> pd.DataFrame:    
+        """Arma la tabla resumen a partir de metricas["por_estacion"] (contrato de salida)."""
+        por_estacion = metricas["por_estacion"]
+        filas=[]
+        for nombre_estacion, info in por_estacion.items():
+            filas.append([nombre_estacion,
+                    info.get("tiempo_promedio_espera_cola"),
+                    info.get("tiempo_promedio_atencion"),
+                    info.get("longitud_promedio_cola"),
+                    info.get("longitud_maxima_cola"),
+                    info.get("cola_mas_larga")
+                    ])
+        tabla_resultante=pd.DataFrame(filas,columns=["Estación", "Espera promedio (min)", 
+                                                     "Atención promedio (min)","Cola promedio", 
+                                                     "Cola máxima", "Cola más larga"])
+        return tabla_resultante
+
+
 def mostrar_resultados(resultado: dict | None = None) -> None:
     """Muestra los resultados de la simulación o vistas vacías si no hay datos."""
     if resultado is None and "resultado" in st.session_state:
@@ -262,10 +281,9 @@ def mostrar_resultados(resultado: dict | None = None) -> None:
     metrica_3.metric("Clientes atendidos", str(atendidos) if atendidos is not None else "—")
 
     st.subheader("Resumen por estación")
-    st.dataframe(pd.DataFrame(columns=[
-        "Estación", "Espera promedio (min)", "Atención promedio (min)",
-        "Cola promedio", "Cola máxima", "Cola más larga",
-    ]), hide_index=True, width="stretch")
+    st.dataframe(tabla_por_estacion(metricas) if metricas else pd.DataFrame(columns=["Estación", "Espera promedio (min)", 
+                                                                                     "Atención promedio (min)","Cola promedio",
+                                                                                     "Cola máxima", "Cola más larga"]), hide_index=True, width="stretch")
 
     colas, servidores = st.columns(2)
     with colas:

@@ -1,10 +1,10 @@
 import json
-
+from pathlib import Path
 from streamlit.testing.v1 import AppTest
 
 from src.app import crear_grafica_comparacion_colas
 from src.config import validar_config
-
+from src.app import tabla_por_estacion
 
 def generar_json(app):
     app.button(key="generar_configuracion").click().run()
@@ -142,6 +142,14 @@ def test_formulario_muestra_errores_del_validador():
     generar_json(app)
 
     assert any("estaciones[0].id" in error.value for error in app.error)
+
+
+def test_tabla_por_estacion_con_ejemplo_02():
+    ruta = Path(__file__).parent.parent / "examples/resultados_ejemplo/02_secuencial_preferencial_resultado.json"
+    metricas = json.loads(ruta.read_text(encoding="utf-8"))["resultado"]["metricas"]
+    tabla = tabla_por_estacion(metricas)
+    assert list(tabla["Estación"]) == ["triaje", "atencion"]
+    assert tabla.loc[1, "Cola más larga"] == "cola_2"
 
 
 def test_crear_grafica_comparacion_colas_vacia():
