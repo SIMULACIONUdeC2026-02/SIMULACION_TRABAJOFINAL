@@ -17,7 +17,7 @@ from src.engine import simular  # noqa: E402
 
 
 TIPOS_COLA = {"Única": "unica", "Múltiple": "multiple", "Preferencial": "preferencial"}
-
+COLUMNAS_ESTACION = ["Estación", "Espera promedio (min)","Atención promedio (min)","Cola promedio","Cola máxima", "Cola más larga"] 
 
 def _capturar_servicio(prefijo: str, numero: int) -> dict:
     """Captura la distribución de servicio configurada para un servidor."""
@@ -254,7 +254,7 @@ def crear_grafica_comparacion_colas(
 
 def tabla_por_estacion(metricas: dict) -> pd.DataFrame:    
         """Arma la tabla resumen a partir de metricas["por_estacion"] (contrato de salida)."""
-        por_estacion = metricas["por_estacion"]
+        por_estacion = metricas.get("por_estacion",{})
         filas=[]
         for nombre_estacion, info in por_estacion.items():
             filas.append([nombre_estacion,
@@ -264,9 +264,7 @@ def tabla_por_estacion(metricas: dict) -> pd.DataFrame:
                     info.get("longitud_maxima_cola"),
                     info.get("cola_mas_larga")
                     ])
-        tabla_resultante=pd.DataFrame(filas,columns=["Estación", "Espera promedio (min)", 
-                                                     "Atención promedio (min)","Cola promedio", 
-                                                     "Cola máxima", "Cola más larga"])
+        tabla_resultante=pd.DataFrame(filas,columns=COLUMNAS_ESTACION)
         return tabla_resultante
 
 
@@ -290,9 +288,7 @@ def mostrar_resultados(resultado: dict | None = None) -> None:
     metrica_3.metric("Clientes atendidos", str(atendidos) if atendidos is not None else "—")
 
     st.subheader("Resumen por estación")
-    st.dataframe(tabla_por_estacion(metricas) if metricas else pd.DataFrame(columns=["Estación", "Espera promedio (min)", 
-                                                                                     "Atención promedio (min)","Cola promedio",
-                                                                                     "Cola máxima", "Cola más larga"]), hide_index=True, width="stretch")
+    st.dataframe(tabla_por_estacion(metricas) if metricas else pd.DataFrame(columns=COLUMNAS_ESTACION), hide_index=True, width="stretch")
 
     colas, servidores = st.columns(2)
     with colas:
@@ -398,7 +394,6 @@ def main() -> None:
                 st.error("Configuración inválida:\n" + "\n".join(f"- {error}" for error in errores))
             else:
                 st.success("Configuración válida.")
-                st.session_state["cargar_resultados"] = True #Temporal para cargar los resultados a la tabla 
             st.subheader("JSON de entrada")
             st.json(config)
 
