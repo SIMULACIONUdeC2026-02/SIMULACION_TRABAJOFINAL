@@ -369,3 +369,148 @@ def test_ocioso_estacion_inexistente_lanza_error(eventos_base, config_base):
 def test_ocioso_estacion_duracion_invalida(eventos_base, config_base, duracion):
     with pytest.raises(ValueError):
         metrics.calculo_ocioso_estacion(eventos_base, config_base, "cajeros", duracion)
+
+
+# --------------------------------------------------------------------------
+# Longitud de las colas (Issue #16)
+#
+# Caso base, cola única (cola_1), T = 20. Esperan en cola:
+#   cliente 4: 3-4    cliente 5: 4-5    cliente 6: 6-7
+#   área = 3  ->  longitud promedio = 3 / 20 = 0.15
+#   en t = 4 el cliente 4 pasa a servicio y entra el 5: longitud máxima = 1
+# --------------------------------------------------------------------------
+
+def _en_cola(cliente_id, espera, inicio, fin, cola, servidor=1, estacion="cajeros"):
+    """Cliente de una parada que espera desde "espera" en la cola indicada."""
+    cliente = _cliente(cliente_id, espera, inicio, fin, servidor, estacion=estacion)
+    cliente["paradas"][0]["cola_asignada"] = cola
+    return cliente
+
+
+def _cola(eventos, cola=1, duracion=DURACION, estacion="cajeros"):
+    return metrics.longitud_cola(eventos, estacion, cola, duracion)
+
+
+def test_longitud_cola_caso_base(eventos_base):
+    r = _cola(eventos_base)
+    assert r["longitud_promedio"] == pytest.approx(0.15)
+    assert r["longitud_maxima"] == 1
+
+
+def test_longitud_cola_forma_del_contrato(eventos_base):
+    assert set(_cola(eventos_base)) == {"longitud_promedio", "longitud_maxima"}
+
+
+def test_longitud_cola_empate_primero_sale_y_luego_entra():
+    """A las 4 uno pasa a servicio y otro llega: nunca hay 2 esperando a la vez."""
+    eventos = [_en_cola(1, 0, 4, 6, 1), _en_cola(2, 4, 6, 8, 1)]
+    r = _cola(eventos)
+    assert r["longitud_maxima"] == 1
+    assert r["longitud_promedio"] == pytest.approx(6 / 20)
+
+
+def test_longitud_cola_clientes_esperando_a_la_vez():
+    eventos = [_en_cola(1, 0, 6, 7, 1), _en_cola(2, 1, 7, 8, 1),
+               _en_cola(3, 2, 8, 9, 1), _en_cola(4, 7, 9, 10, 1)]
+    r = _cola(eventos)
+    assert r["longitud_maxima"] == 3
+    assert r["longitud_promedio"] == pytest.approx((6 + 6 + 6 + 2) / 20)
+
+
+def test_longitud_cola_sin_espera_es_cero():
+    eventos = [_en_cola(1, 0, 0, 5, 1), _en_cola(2, 6, 6, 9, 1)]
+    assert _cola(eventos) == {"longitud_promedio": 0.0, "longitud_maxima": 0}
+
+
+def test_longitud_cola_sin_eventos():
+    assert _cola([]) == {"longitud_promedio": 0.0, "longitud_maxima": 0}
+
+
+def test_longitud_cola_separa_las_colas_de_la_estacion():
+    """Estación preferencial: cola_1 = preferenciales, cola_2 = normales."""
+    eventos = [_en_cola(1, 0, 2, 5, 1), _en_cola(2, 1, 5, 8, 2),
+               _en_cola(3, 2, 8, 9, 2)]
+    assert _cola(eventos, cola=1) == {"longitud_promedio": pytest.approx(2 / 20),
+                                      "longitud_maxima": 1}
+    assert _cola(eventos, cola=2) == {"longitud_promedio": pytest.approx(10 / 20),
+                                      "longitud_maxima": 2}
+
+
+def test_longitud_cola_ignora_otras_estaciones(eventos_base):
+    eventos = eventos_base + [_en_cola(9, 0, 10, 12, 1, estacion="farmacia")]
+    assert _cola(eventos)["longitud_promedio"] == pytest.approx(0.15)
+    assert _cola(eventos, estacion="farmacia")["longitud_promedio"] == pytest.approx(10 / 20)
+
+
+def test_longitud_cola_cliente_que_sigue_en_cola_cuenta_hasta_el_final():
+    eventos = [_en_cola(1, 15, None, None, 1, servidor=None)]
+    r = _cola(eventos)
+    assert r["longitud_promedio"] == pytest.approx(5 / 20)
+    assert r["longitud_maxima"] == 1
+
+
+def test_longitud_cola_recorta_la_espera_que_cruza_el_final():
+    r = _cola([_en_cola(1, 18, 25, 30, 1)])
+    assert r["longitud_promedio"] == pytest.approx(2 / 20)
+    assert r["longitud_maxima"] == 1
+
+
+def test_longitud_cola_espera_que_empieza_en_el_final_se_ignora():
+    assert _cola([_en_cola(1, 20, 25, 30, 1)]) == {"longitud_promedio": 0.0,
+                                                   "longitud_maxima": 0}
+
+
+def test_longitud_cola_no_depende_del_orden_de_los_eventos(eventos_base):
+    assert _cola(list(reversed(eventos_base))) == _cola(eventos_base)
+
+
+def test_longitud_cola_con_tiempos_decimales():
+    r = _cola([_en_cola(1, 2.3, 4.1, 4.8, 1)], duracion=480)
+    assert r["longitud_promedio"] == pytest.approx(1.8 / 480)
+
+
+@pytest.mark.parametrize("duracion", [0, -5, None, True, "20"])
+def test_longitud_cola_duracion_invalida(eventos_base, duracion):
+    with pytest.raises(ValueError):
+        _cola(eventos_base, duracion=duracion)
+
+
+# --- metricas_por_cola ---
+
+@pytest.fixture
+def config_colas():
+    """Estación "atencion" preferencial (2 colas) y "cajeros" con cola única."""
+    servicio = {"tipo": "exponencial", "media": 2}
+    return {"estaciones": [
+        {"id": "atencion",
+         "servidores": [{"id": "a1", "servicio": servicio},
+                        {"id": "a2", "servicio": servicio}],
+         "colas": {"tipo": "preferencial", "cantidad": 2}},
+        {"id": "cajeros",
+         "servidores": [{"id": "s1", "servicio": servicio}],
+         "colas": {"tipo": "unica", "cantidad": 1}},
+    ]}
+
+
+def test_por_cola_una_entrada_por_cola(config_colas):
+    eventos = [_en_cola(1, 0, 4, 6, 2, estacion="atencion")]
+    r = metrics.metricas_por_cola(eventos, config_colas, "atencion", DURACION)
+    assert list(r) == ["cola_1", "cola_2"]
+    assert r["cola_1"] == {"longitud_promedio": 0.0, "longitud_maxima": 0}
+    assert r["cola_2"] == {"longitud_promedio": pytest.approx(4 / 20),
+                           "longitud_maxima": 1}
+
+
+def test_por_cola_coincide_con_cada_cola(eventos_base, config_colas):
+    r = metrics.metricas_por_cola(eventos_base, config_colas, "cajeros", DURACION)
+    assert r == {"cola_1": _cola(eventos_base)}
+
+
+def test_por_cola_sin_bloque_colas_usa_una_sola(eventos_base, config_base):
+    r = metrics.metricas_por_cola(eventos_base, config_base, "cajeros", DURACION)
+    assert list(r) == ["cola_1"]
+
+
+def test_por_cola_estacion_inexistente_lanza_error(config_colas):
+    with pytest.raises(ValueError):
+        metrics.metricas_por_cola([], config_colas, "nada", DURACION)
