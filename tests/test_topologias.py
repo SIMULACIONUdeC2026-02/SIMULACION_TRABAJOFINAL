@@ -4,9 +4,9 @@ import pathlib
 
 import pytest
 
-from src.config import validar_config
-from src import topologias
-from src.topologias import METODOS, VARIANTES, construir_config
+from config import validar_config
+import topologias
+from topologias import METODOS, VARIANTES, construir_config
 
 # Ruta al ejemplo de referencia
 _EJEMPLO_01 = (

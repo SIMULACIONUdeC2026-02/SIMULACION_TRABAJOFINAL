@@ -1,9 +1,10 @@
 import json
-
+from pathlib import Path
 from streamlit.testing.v1 import AppTest
 
+from src.app import crear_grafica_comparacion_colas
 from src.config import validar_config
-
+from src.app import tabla_por_estacion
 
 def generar_json(app):
     app.button(key="generar_configuracion").click().run()
@@ -21,13 +22,13 @@ def test_app_muestra_formulario_y_resultados_vacios():
     assert len(app.get("plotly_chart")) == 1
     assert all(not json.loads(chart.proto.spec)["data"] for chart in app.get("plotly_chart"))
     assert [metric.value for metric in app.metric] == ["—", "—", "—"]
-    assert app.button(key="simular")
-    assert any("Ejecuta una simulación" in element.value for element in app.info)
+    assert not app.get("progress")
+    assert any("no hay datos de utilización" in aviso.value for aviso in app.info)
 
 
-def test_vista_muestra_porcentajes_y_identifica_servidor_saturado():
+def test_utilizacion_muestra_porcentajes_y_marca_saturacion():
     app = AppTest.from_file("../src/app.py", default_timeout=15).run()
-    app.session_state["resultados_simulacion"] = {
+    app.session_state["resultado"] = {
         "resultado": {
             "metricas": {
                 "por_estacion": {
@@ -36,31 +37,39 @@ def test_vista_muestra_porcentajes_y_identifica_servidor_saturado():
                             "servidor_1": {"utilizacion": 0.754},
                             "servidor_2": {"utilizacion": 0.90},
                             "servidor_3": {"utilizacion": 0.85},
-                        }
-                    }
-                }
-            }
-        }
+                        },
+                    },
+                },
+            },
+        },
     }
     app.run()
 
-    assert {"75.4%", "90.0%", "85.0%"}.issubset(
-        {metric.value for metric in app.metric}
+    assert not app.exception
+    assert [(metrica.label, metrica.value) for metrica in app.metric[3:]] == [
+        ("servidor_1", "75.4%"),
+        ("servidor_2 · SATURADO", "90.0%"),
+        ("servidor_3", "85.0%"),
+    ]
+    assert len(app.get("progress")) == 3
+
+
+def test_utilizacion_del_ejemplo_secuencial_muestra_las_dos_estaciones():
+    ruta = (
+        Path(__file__).resolve().parents[1] / "examples" / "resultados_ejemplo"
+        / "02_secuencial_preferencial_resultado.json"
     )
-    assert any("servidor_2 · SATURADO" in metric.label for metric in app.metric)
-    assert not any("servidor_3 · SATURADO" in metric.label for metric in app.metric)
-
-
-def test_boton_simular_genera_utilizacion_por_servidor():
-    app = AppTest.from_file("../src/app.py", default_timeout=30).run()
-    app.button(key="simular").click().run()
+    app = AppTest.from_file("../src/app.py", default_timeout=15).run()
+    app.session_state["resultado"] = json.loads(ruta.read_text(encoding="utf-8"))
+    app.run()
 
     assert not app.exception
-    assert any("Simulación completada." in elemento.value for elemento in app.success)
-    resultado = app.session_state["resultados_simulacion"]
-    por_servidor = resultado["metricas"]["por_estacion"]["cajeros"]["por_servidor"]
-    assert list(por_servidor) == ["servidor_1", "servidor_2", "servidor_3"]
-    assert all(0 <= datos["utilizacion"] <= 1 for datos in por_servidor.values())
+    assert {"**triaje**", "**atencion**"} <= {elemento.value for elemento in app.markdown}
+    assert [(metrica.label, metrica.value) for metrica in app.metric[3:]] == [
+        ("servidor_1", "23.3%"),
+        ("servidor_1", "33.3%"),
+        ("servidor_2", "33.3%"),
+    ]
 
 
 def test_formulario_genera_configuracion_paralela_valida():
@@ -181,3 +190,74 @@ def test_formulario_muestra_errores_del_validador():
     generar_json(app)
 
     assert any("estaciones[0].id" in error.value for error in app.error)
+
+
+def test_tabla_por_estacion_con_ejemplo_02():
+    ruta = Path(__file__).parent.parent / "examples/resultados_ejemplo/02_secuencial_preferencial_resultado.json"
+    metricas = json.loads(ruta.read_text(encoding="utf-8"))["resultado"]["metricas"]
+    tabla = tabla_por_estacion(metricas)
+    assert list(tabla["Estación"]) == ["triaje", "atencion"]
+    assert tabla.loc[1, "Cola más larga"] == "cola_2"
+def test_boton_simular_guarda_resultado_real_en_session_state():
+    app = AppTest.from_file("../src/app.py", default_timeout=15).run()
+    app.button(key="ejecutar_simulacion").click().run()
+
+    assert not app.exception
+    assert not app.error
+    salida = app.session_state["resultado"]
+    assert set(salida) == {"resultado"}
+    eventos = salida["resultado"]["eventos_clientes"]
+    assert eventos
+    assert eventos[0]["paradas"][0]["estacion_id"] == "cajeros"
+
+
+def test_boton_simular_con_config_invalida_muestra_error():
+    app = AppTest.from_file("../src/app.py", default_timeout=15).run()
+    app.text_input(key="estacion_1_id").set_value("")
+    app.button(key="ejecutar_simulacion").click().run()
+
+    assert "resultado" not in app.session_state
+    assert any("estaciones[0].id" in error.value for error in app.error)
+
+
+def test_crear_grafica_comparacion_colas_vacia():
+    fig = crear_grafica_comparacion_colas()
+    assert len(fig.data) == 0
+    assert fig.layout.xaxis.title.text == "Cola"
+    assert fig.layout.yaxis.title.text == "Clientes"
+
+
+def test_crear_grafica_comparacion_colas_con_datos_resalta_mayor():
+    por_cola = {
+        "cola_1": {"longitud_promedio": 0.0333, "longitud_maxima": 1},
+        "cola_2": {"longitud_promedio": 0.1, "longitud_maxima": 1},
+    }
+    cola_mas_larga = "cola_2"
+    fig = crear_grafica_comparacion_colas(por_cola, cola_mas_larga)
+
+    assert len(fig.data) == 2
+    trace_max, trace_prom = fig.data[0], fig.data[1]
+    assert trace_max.name == "Longitud máxima"
+    assert trace_prom.name == "Longitud promedio"
+    assert list(trace_max.x) == ["cola_1", "cola_2"]
+    assert list(trace_max.y) == [1.0, 1.0]
+
+    # Los colores por métrica son uniformes y coinciden con la leyenda
+    assert trace_max.marker.color == "#636EFA"
+    assert trace_prom.marker.color == "#00CC96"
+
+    # La cola más larga ("cola_2") se resalta con un borde en sus dos barras
+    assert trace_max.marker.line.width[1] > 0
+    assert trace_prom.marker.line.width[1] > 0
+    assert trace_max.marker.line.width[0] == 0
+    assert trace_prom.marker.line.width[0] == 0
+
+    # No se incluye '(Mayor)' sobre el valor de la barra para evitar confusiones
+    assert "Mayor" not in trace_max.text[0]
+    assert "Mayor" not in trace_max.text[1]
+    assert list(trace_max.text) == ["1", "1"]
+
+    # Se marca la cola mayor en el eje X
+    assert fig.layout.xaxis.ticktext[1] == "cola_2 ★"
+    assert fig.layout.title.text == "Comparación de colas (Mayor: cola_2)"
+    assert fig.layout.yaxis.title.text == "Clientes"

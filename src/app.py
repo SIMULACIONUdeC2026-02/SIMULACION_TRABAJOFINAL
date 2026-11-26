@@ -1,15 +1,23 @@
 """Interfaz Streamlit para configurar y consultar simulaciones de colas."""
+import sys
+from pathlib import Path
+
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from src.config import validar_config
-from src.engine import ejecutar_simulacion
-from src.metrics import calculo_ocioso_estacion
+# `streamlit run src/app.py` solo agrega src/ al path; el motor importa como `src.*`,
+# así que se agrega también la raíz del proyecto.
+_RAIZ_PROYECTO = str(Path(__file__).resolve().parents[1])
+if _RAIZ_PROYECTO not in sys.path:
+    sys.path.insert(0, _RAIZ_PROYECTO)
+
+from src.config import validar_config  # noqa: E402
+from src.engine import simular  # noqa: E402
 
 
 TIPOS_COLA = {"Única": "unica", "Múltiple": "multiple", "Preferencial": "preferencial"}
-
+COLUMNAS_ESTACION = ["Estación", "Espera promedio (min)","Atención promedio (min)","Cola promedio","Cola máxima", "Cola más larga"] 
 
 def _capturar_servicio(prefijo: str, numero: int) -> dict:
     """Captura la distribución de servicio configurada para un servidor."""
@@ -160,42 +168,122 @@ def construir_config(
     return {"simulacion": simulacion, "estaciones": estaciones}
 
 
-def mostrar_utilizacion_servidores(resultados: dict | None) -> None:
-    """Muestra la utilización de cada servidor desde el contrato de resultados."""
+def crear_grafica_comparacion_colas(
+    por_cola: dict[str, dict[str, float | int]] | None = None,
+    cola_mas_larga: str | None = None,
+) -> go.Figure:
+    """
+    Crea una gráfica de barras en Plotly para comparar las colas de una estación.
+
+    Compara la longitud máxima y promedio de cada cola, y resalta visualmente
+    cuál es la cola más larga detectada por la simulación con un borde en sus
+    dos barras y marcando la etiqueta en el eje X.
+
+    Args:
+        por_cola: Diccionario con métricas de cada cola
+            (ej. {'cola_1': {'longitud_promedio': 1.5, 'longitud_maxima': 4}}).
+        cola_mas_larga: Clave de la cola con mayor longitud (ej. 'cola_1').
+
+    Returns:
+        go.Figure: Gráfica interactiva de Plotly con las barras comparativas.
+    """
+    if not por_cola:
+        return go.Figure().update_layout(
+            xaxis_title="Cola",
+            yaxis_title="Clientes",
+        )
+
+    nombres_colas = list(por_cola.keys())
+    maximos = [float(por_cola[c].get("longitud_maxima", 0)) for c in nombres_colas]
+    promedios = [float(por_cola[c].get("longitud_promedio", 0.0)) for c in nombres_colas]
+
+    # Resalta la barra de la cola más larga con un borde distintivo sin alterar
+    # el color de la métrica (para que coincida con la leyenda).
+    bordes_color = [
+        "#1F1F1F" if c == cola_mas_larga else "rgba(0,0,0,0)"
+        for c in nombres_colas
+    ]
+    bordes_ancho = [
+        2.5 if c == cola_mas_larga else 0
+        for c in nombres_colas
+    ]
+    etiquetas_x = [
+        f"{c} ★" if c == cola_mas_larga else c
+        for c in nombres_colas
+    ]
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        name="Longitud máxima",
+        x=nombres_colas,
+        y=maximos,
+        text=[f"{v:g}" for v in maximos],
+        textposition="auto",
+        marker_color="#636EFA",
+        marker_line_color=bordes_color,
+        marker_line_width=bordes_ancho,
+        hovertemplate="<b>%{x}</b><br>Longitud máxima: %{y}<extra></extra>",
+    ))
+    fig.add_trace(go.Bar(
+        name="Longitud promedio",
+        x=nombres_colas,
+        y=promedios,
+        text=[f"{v:.2f}" for v in promedios],
+        textposition="auto",
+        marker_color="#00CC96",
+        marker_line_color=bordes_color,
+        marker_line_width=bordes_ancho,
+        hovertemplate="<b>%{x}</b><br>Longitud promedio: %{y:.3f}<extra></extra>",
+    ))
+
+    titulo = f"Comparación de colas (Mayor: {cola_mas_larga})" if cola_mas_larga else "Comparación de colas"
+    fig.update_layout(
+        title=titulo,
+        barmode="group",
+        xaxis=dict(
+            title="Cola",
+            tickmode="array",
+            tickvals=nombres_colas,
+            ticktext=etiquetas_x,
+        ),
+        yaxis_title="Clientes",
+        legend_title="Métrica",
+    )
+    return fig
+
+
+def tabla_por_estacion(metricas: dict) -> pd.DataFrame:    
+        """Arma la tabla resumen a partir de metricas["por_estacion"] (contrato de salida)."""
+        por_estacion = metricas.get("por_estacion",{})
+        filas=[]
+        for nombre_estacion, info in por_estacion.items():
+            filas.append([nombre_estacion,
+                    info.get("tiempo_promedio_espera_cola"),
+                    info.get("tiempo_promedio_atencion"),
+                    info.get("longitud_promedio_cola"),
+                    info.get("longitud_maxima_cola"),
+                    info.get("cola_mas_larga")
+                    ])
+        tabla_resultante=pd.DataFrame(filas,columns=COLUMNAS_ESTACION)
+        return tabla_resultante
+
+
+def mostrar_utilizacion_servidores(por_estacion: dict) -> None:
+    """Muestra la utilización por servidor de cada estación del resultado."""
     st.subheader("Utilización por servidor")
-    if resultados is None or resultados == {}:
-        st.info("Ejecuta una simulación para ver la utilización por servidor.")
-        return
-    if not isinstance(resultados, dict):
-        st.warning("El resultado de la simulación no tiene el formato esperado.")
-        return
-
-    resultado = resultados.get("resultado", resultados)
-    if not isinstance(resultado, dict):
-        st.warning("El resultado de la simulación no tiene el formato esperado.")
-        return
-
-    metricas = resultado.get("metricas")
-    por_estacion = metricas.get("por_estacion") if isinstance(metricas, dict) else None
-    if not isinstance(por_estacion, dict) or not por_estacion:
-        st.info("No hay datos de utilización por servidor para mostrar.")
+    if not por_estacion:
+        st.info("Aún no hay datos de utilización por servidor.")
         return
 
     for estacion_id, metricas_estacion in por_estacion.items():
         st.markdown(f"**{estacion_id}**")
-        por_servidor = (
-            metricas_estacion.get("por_servidor")
-            if isinstance(metricas_estacion, dict) else None
-        )
-        if not isinstance(por_servidor, dict) or not por_servidor:
+        por_servidor = metricas_estacion.get("por_servidor", {})
+        if not por_servidor:
             st.caption("Sin datos de servidores para esta estación.")
             continue
 
         for servidor_id, metricas_servidor in por_servidor.items():
-            utilizacion = (
-                metricas_servidor.get("utilizacion")
-                if isinstance(metricas_servidor, dict) else None
-            )
+            utilizacion = metricas_servidor.get("utilizacion")
             if (
                 isinstance(utilizacion, bool)
                 or not isinstance(utilizacion, (int, float))
@@ -204,35 +292,65 @@ def mostrar_utilizacion_servidores(resultados: dict | None) -> None:
                 st.warning(f"Utilización inválida para {estacion_id} / {servidor_id}.")
                 continue
 
-            porcentaje = utilizacion * 100
+            porcentaje = f"{utilizacion:.1%}"
             saturado = utilizacion > 0.85
             etiqueta = f"{servidor_id}{' · SATURADO' if saturado else ''}"
-            columna_metrica, columna_barra = st.columns([1, 3])
-            columna_metrica.metric(etiqueta, f"{porcentaje:.1f}%")
-            columna_barra.progress(
-                utilizacion,
-                text="Saturado (> 85 %)" if saturado else f"{porcentaje:.1f}%",
+            col_metrica, col_barra = st.columns([1, 3])
+            col_metrica.metric(etiqueta, porcentaje)
+            col_barra.progress(
+                utilizacion, text="Saturado (> 85 %)" if saturado else porcentaje,
             )
 
 
-def mostrar_resultados(resultados: dict | None = None) -> None:
-    """Muestra el resumen y las vistas de resultados disponibles."""
+def mostrar_resultados(resultado: dict | None = None) -> None:
+    """Muestra los resultados de la simulación o vistas vacías si no hay datos."""
+    if resultado is None and "resultado" in st.session_state:
+        resultado = st.session_state["resultado"]
+
+    metricas = {}
+    if resultado and isinstance(resultado, dict):
+        metricas = resultado.get("resultado", resultado).get("metricas", {})
+
+    sistema = metricas.get("sistema_completo", {})
+    t_sistema = sistema.get("tiempo_promedio_en_sistema")
+    c_sistema = sistema.get("clientes_promedio_en_sistema")
+    atendidos = sistema.get("clientes_totales_atendidos")
+
     metrica_1, metrica_2, metrica_3 = st.columns(3)
-    metrica_1.metric("Tiempo promedio en sistema", "—")
-    metrica_2.metric("Clientes promedio en sistema", "—")
-    metrica_3.metric("Clientes atendidos", "—")
+    metrica_1.metric("Tiempo promedio en sistema", f"{t_sistema:.2f} min" if t_sistema is not None else "—")
+    metrica_2.metric("Clientes promedio en sistema", f"{c_sistema:.2f}" if c_sistema is not None else "—")
+    metrica_3.metric("Clientes atendidos", str(atendidos) if atendidos is not None else "—")
 
     st.subheader("Resumen por estación")
-    st.dataframe(pd.DataFrame(columns=[
-        "Estación", "Espera promedio (min)", "Atención promedio (min)",
-        "Cola promedio", "Cola máxima", "Cola más larga",
-    ]), hide_index=True, width="stretch")
+    st.dataframe(tabla_por_estacion(metricas) if metricas else pd.DataFrame(columns=COLUMNAS_ESTACION), hide_index=True, width="stretch")
 
-    st.subheader("Comparación de colas")
-    st.plotly_chart(
-        go.Figure().update_layout(xaxis_title="Cola", yaxis_title="Longitud máxima"),
-    )
-    mostrar_utilizacion_servidores(resultados)
+    por_estacion = metricas.get("por_estacion", {})
+    colas, servidores = st.columns(2)
+    with colas:
+        st.subheader("Comparación de colas")
+        if por_estacion:
+            estaciones_disponibles = list(por_estacion.keys())
+            if len(estaciones_disponibles) > 1:
+                estacion_sel = st.selectbox(
+                    "Estación para comparar colas",
+                    estaciones_disponibles,
+                    key="selector_estacion_colas",
+                )
+            else:
+                estacion_sel = estaciones_disponibles[0]
+            datos_estacion = por_estacion.get(estacion_sel, {})
+            por_cola = datos_estacion.get("por_cola", {})
+            cola_mas_larga = datos_estacion.get("cola_mas_larga")
+            fig_colas = crear_grafica_comparacion_colas(por_cola, cola_mas_larga)
+            st.plotly_chart(fig_colas)
+            if cola_mas_larga:
+                st.caption(f"Cola más larga en {estacion_sel}: **{cola_mas_larga}**")
+        else:
+            fig_vacia = crear_grafica_comparacion_colas()
+            st.plotly_chart(fig_vacia)
+
+    with servidores:
+        mostrar_utilizacion_servidores(por_estacion)
 
 
 def main() -> None:
@@ -299,7 +417,9 @@ def main() -> None:
             nombre, metodo, duracion, semilla, llegadas, estaciones,
             estacion_entrada, proporcion_preferencial,
         )
-        if st.button("Generar JSON", key="generar_configuracion"):
+
+        col_generar, col_simular = st.columns(2)
+        if col_generar.button("Generar JSON", key="generar_configuracion"):
             errores = validar_config(config)
             if errores:
                 st.error("Configuración inválida:\n" + "\n".join(f"- {error}" for error in errores))
@@ -308,33 +428,30 @@ def main() -> None:
             st.subheader("JSON de entrada")
             st.json(config)
 
-        if st.button("Simular", key="simular"):
-            st.session_state.pop("resultados_simulacion", None)
-            errores = validar_config(config)
-            if errores:
-                st.error("Configuración inválida:\n" + "\n".join(f"- {error}" for error in errores))
-            else:
-                try:
-                    resultado = ejecutar_simulacion(config)
-                    por_estacion = {
-                        estacion["id"]: {
-                            "por_servidor": calculo_ocioso_estacion(
-                                resultado["eventos_clientes"],
-                                config,
-                                estacion["id"],
-                                resultado["duracion_total_minutos"],
-                            )
-                        }
-                        for estacion in estaciones
-                    }
-                    resultado["metricas"] = {"por_estacion": por_estacion}
-                    st.session_state["resultados_simulacion"] = resultado
-                    st.success("Simulación completada.")
-                except (ValueError, NotImplementedError) as error:
-                    st.error(f"No se pudo ejecutar la simulación: {error}")
+        if col_simular.button("Simular", key="ejecutar_simulacion", type="primary"):
+            ejecutar_y_guardar(config)
 
     with resultados_tab:
-        mostrar_resultados(st.session_state.get("resultados_simulacion"))
+        mostrar_resultados()
+
+
+def ejecutar_y_guardar(config: dict) -> None:
+    """Corre la simulación completa y guarda {"resultado": ...} en st.session_state["resultado"]."""
+    try:
+        salida = simular(config)
+    except (ValueError, NotImplementedError, RuntimeError) as error:
+        st.session_state.pop("resultado", None)
+        st.error(f"No se pudo simular:\n{error}")
+        return
+
+    st.session_state["resultado"] = salida
+    resultado = salida["resultado"]
+    st.success(
+        f"Simulación lista: {len(resultado['eventos_clientes'])} clientes atendidos en "
+        f"{resultado['duracion_total_minutos']:.2f} min. Revisa la pestaña Resultados."
+    )
+    if "metricas" not in resultado:
+        st.info("Las métricas aún no están disponibles (pendiente Issue #17 de Métricas).")
 
 
 if __name__ == "__main__":

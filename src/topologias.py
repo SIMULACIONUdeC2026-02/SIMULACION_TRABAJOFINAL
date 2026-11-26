@@ -267,29 +267,97 @@ def _paralelo_servidor_unico(**parametros) -> dict:
 
 
 # --------------------------------------------------------------------------
-# Paralelo: clientes preferenciales · Responsable: (asignar)
+# Paralelo: clientes preferenciales · Responsable: Cristy
 # --------------------------------------------------------------------------
 
-def _paralelo_preferencial(**parametros) -> dict:
+def _paralelo_preferencial(
+    *,
+    lambda_por_hora: int | float = 40,
+    n_servidores: int = 3,
+    media_servicio: int | float = 4,
+    proporcion_preferenciales: int | float = 0.2,
+    duracion_minutos: int | float = 480,
+    semilla: int = 42,
+) -> dict:
     """
     Variante 3: método paralelo, colas con clientes preferenciales.
 
-    Con los valores por defecto debe reproducir
-    examples/configs_ejemplo/03_paralelo_preferencial.json
-    (3 servidores exponenciales de media 4, colas "preferencial" con
-    cantidad 2, y "clientes_preferenciales": {"proporcion": 0.2} en
-    "simulacion").
+    Una sola estación con *n_servidores* servidores exponenciales y dos
+    colas de tipo "preferencial": la cola 1 es para clientes preferenciales
+    y la cola 2 para clientes normales. Cuando un servidor queda libre
+    atiende primero la cola 1 (prioridad no expropiativa: no interrumpe a
+    quien ya está en servicio). Ver docs/contratos.md.
 
-    Parámetros sugeridos: lambda_por_hora, n_servidores, media_servicio,
-    proporcion_preferenciales, duracion_minutos, semilla.
-    Valida la proporción con _validar_proporcion y la estabilidad con
-    _verificar_estabilidad.
+    Con los valores por defecto reproduce
+    examples/configs_ejemplo/03_paralelo_preferencial.json.
+
+    Antes de construir la configuración valida los parámetros y verifica la
+    estabilidad del sistema M/M/c. La prioridad solo cambia el orden de
+    atención, no la carga total, así que la condición sigue siendo:
+        ρ = (λ/60 · media_servicio) / n_servidores < 1.
+
+    Args:
+        lambda_por_hora: llegadas por hora (proceso de Poisson), mayor que 0.
+        n_servidores: número de servidores de la estación, entero ≥ 1.
+        media_servicio: tiempo medio de servicio en minutos (exponencial),
+            mayor que 0.
+        proporcion_preferenciales: fracción de clientes que llegan como
+            preferenciales, estrictamente entre 0 y 1.
+        duracion_minutos: duración de la simulación en minutos, mayor que 0.
+        semilla: semilla del generador aleatorio, entero.
+
+    Returns:
+        Configuración que cumple el contrato de entrada (config.validar_config),
+        con "clientes_preferenciales": {"proporcion": ...} dentro de
+        "simulacion" y colas {"tipo": "preferencial", "cantidad": 2,
+        "reparticion": None}.
+
+    Raises:
+        ValueError: si algún parámetro no es válido (tipo o rango), si
+            proporcion_preferenciales no está entre 0 y 1 (sin incluirlos),
+            o si el sistema es inestable (ρ ≥ 1).
     """
-    raise NotImplementedError(
-        "La combinación metodo='paralelo', "
-        "variante='colas_multiples_preferencial_multiples_servidores' "
-        "aún no está implementada."
-    )
+    # --- Validación de parámetros --------------------------------------------
+    _validar_entero_minimo("n_servidores", n_servidores)
+    _validar_numero_positivo("lambda_por_hora", lambda_por_hora)
+    _validar_numero_positivo("media_servicio", media_servicio)
+    _validar_proporcion("proporcion_preferenciales", proporcion_preferenciales)
+    _validar_numero_positivo("duracion_minutos", duracion_minutos)
+    _validar_semilla(semilla)
+
+    # --- Validación de estabilidad -------------------------------------------
+    _verificar_estabilidad(lambda_por_hora, media_servicio, n_servidores)
+
+    # --- Configuración completa ----------------------------------------------
+    return {
+        "simulacion": {
+            "nombre": "Ejemplo - Método 1, colas múltiples, clientes preferenciales",
+            "metodo": "paralelo",
+            "duracion_minutos": duracion_minutos,
+            "semilla": semilla,
+            "llegada": {
+                "distribucion": "poisson",
+                "lambda_por_hora": lambda_por_hora,
+            },
+            "clientes_preferenciales": {
+                "proporcion": proporcion_preferenciales,
+            },
+        },
+        "estaciones": [
+            {
+                "id": "cajeros",
+                "nombre": "Atención de cajeros",
+                "servidores": _servidores_exponenciales(n_servidores, media_servicio),
+                # Cola 1: preferenciales · Cola 2: normales.
+                "colas": {
+                    "tipo": "preferencial",
+                    "cantidad": 2,
+                    "reparticion": None,
+                },
+                "salidas": [],
+            }
+        ],
+    }
 
 
 # ==========================================================================

@@ -10,6 +10,8 @@ import unicodedata
 import simpy
 
 from src.config import validar_config
+from src.contrato_salida import validar_resultado
+from src.metrics import calcular_metricas
 
 
 def _positivo(valor, nombre: str):
@@ -317,3 +319,52 @@ def ejecutar_simulacion(config: dict) -> dict:
         'duracion_total_minutos': max(duracion, entorno.now),
         'eventos_clientes': eventos,
     }
+
+
+def simular(config: dict) -> dict:
+    """Recorrido completo de una simulación: lo que la interfaz necesita para mostrar resultados.
+
+    Pasos:
+    1. ``validar_config(config)``: si hay errores lanza ValueError con la lista completa.
+    2. ``ejecutar_simulacion(config)``: genera los eventos crudos de los clientes.
+    3. ``calcular_metricas(...)``: agrega el bloque "metricas". Mientras Métricas no lo
+       implemente (lanza NotImplementedError), se devuelve el resultado sin "metricas".
+    4. ``validar_resultado(resultado, config)``: si la salida no respeta el contrato,
+       lanza RuntimeError (sería un error interno del motor, no de la configuración).
+    5. Devuelve ``{"resultado": resultado}``, el mismo formato de
+       examples/resultados_ejemplo/ que la interfaz lee de st.session_state["resultado"].
+
+    Args:
+        config: configuración según el contrato de entrada (docs/contratos.md).
+
+    Returns:
+        Diccionario {"resultado": {...}} con simulacion_id, duracion_total_minutos,
+        eventos_clientes y, si ya está disponible, metricas.
+
+    Raises:
+        ValueError: si la configuración no es válida.
+        NotImplementedError: si la configuración usa una variante no soportada.
+        RuntimeError: si el resultado generado no pasa validar_resultado.
+    """
+    errores = validar_config(config)
+    if errores:
+        raise ValueError("Configuración inválida:\n" + "\n".join(f"- {e}" for e in errores))
+
+    resultado = ejecutar_simulacion(config)
+
+    try:
+        resultado['metricas'] = calcular_metricas(
+            resultado['eventos_clientes'], config, resultado['duracion_total_minutos']
+        )
+    except NotImplementedError:
+        # Pendiente Issue #17 (Métricas): se entrega el resultado sin el bloque "metricas".
+        pass
+
+    errores_resultado = validar_resultado(resultado, config)
+    if errores_resultado:
+        raise RuntimeError(
+            "El resultado de la simulación no respeta el contrato de salida:\n"
+            + "\n".join(f"- {e}" for e in errores_resultado)
+        )
+
+    return {'resultado': resultado}
