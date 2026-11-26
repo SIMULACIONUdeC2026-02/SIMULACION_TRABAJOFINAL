@@ -430,6 +430,60 @@ def metricas_por_cola(eventos_clientes: list[dict], config: dict,
     }
 
 
+def longitud_cola_estacion(eventos_clientes: list[dict], estacion_id: str,
+                           duracion_total_minutos: float) -> dict:
+    """
+    Longitud promedio y máxima de la cola de una estación, con todas sus colas juntas.
+
+    - Promedio: (1 / T) · ∫ Lq(t) dt con Lq(t) = clientes esperando en
+      cualquiera de sus colas. Es igual a la suma de las longitudes promedio
+      de cada cola.
+    - Máxima: mayor cantidad de clientes esperando a la vez en toda la
+      estación. No es la suma de los máximos de cada cola, porque esos máximos
+      pueden ocurrir en momentos distintos.
+
+    Args:
+        eventos_clientes: lista de eventos según el contrato de salida.
+        estacion_id: "id" de texto de la estación.
+        duracion_total_minutos: duración simulada (T), mayor que 0.
+
+    Returns:
+        {"longitud_promedio_cola", "longitud_maxima_cola"}, las claves de
+        "por_estacion" en el contrato.
+    """
+    _validar_duracion(duracion_total_minutos)
+    intervalos = _intervalos_en_cola(
+        paradas_por_estacion(eventos_clientes, estacion_id), duracion_total_minutos)
+    area = sum(fin - inicio for inicio, fin in intervalos)
+    return {
+        "longitud_promedio_cola": area / duracion_total_minutos,
+        "longitud_maxima_cola": _maximo_simultaneo(intervalos),
+    }
+
+
+def cola_mas_larga(por_cola: dict) -> str | None:
+    """
+    Cola con mayor longitud promedio de una estación.
+
+    Criterio (docs/metricas.md): gana la de mayor "longitud_promedio"; en un
+    empate, la de menor número (cola_1 antes que cola_2).
+
+    Args:
+        por_cola: bloque "por_cola" de una estación
+            ({"cola_1": {"longitud_promedio": ...}, ...}).
+
+    Returns:
+        La clave de la cola más larga ("cola_N"), o None si no hay colas.
+    """
+    ordenadas = sorted(por_cola, key=lambda clave: int(clave.rsplit("_", 1)[1]))
+    mejor = None
+    for clave in ordenadas:
+        if mejor is None or (por_cola[clave]["longitud_promedio"]
+                             > por_cola[mejor]["longitud_promedio"]):
+            mejor = clave
+    return mejor
+
+
 # --------------------------------------------------------------------------
 # Resumen completo (se completa con los Issues #16 y #17)
 # --------------------------------------------------------------------------

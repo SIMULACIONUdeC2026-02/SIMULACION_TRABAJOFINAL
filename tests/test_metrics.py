@@ -17,6 +17,9 @@ examples/resultados_ejemplo/01_paralelo_cola_unica_resultado.json.
 
     W = 35 / 8 = 4.375      λ = 8 / 20 = 0.4      L = λ·W = 1.75
 """
+import json
+from pathlib import Path
+
 import pytest
 
 from src import metrics
@@ -514,3 +517,106 @@ def test_por_cola_sin_bloque_colas_usa_una_sola(eventos_base, config_base):
 def test_por_cola_estacion_inexistente_lanza_error(config_colas):
     with pytest.raises(ValueError):
         metrics.metricas_por_cola([], config_colas, "nada", DURACION)
+
+
+# --- longitud_cola_estacion y cola_mas_larga ---
+
+def test_cola_estacion_caso_base(eventos_base):
+    r = metrics.longitud_cola_estacion(eventos_base, "cajeros", DURACION)
+    assert r == {"longitud_promedio_cola": pytest.approx(0.15),
+                 "longitud_maxima_cola": 1}
+
+
+def test_cola_estacion_promedio_es_la_suma_de_sus_colas(config_colas):
+    eventos = [_en_cola(1, 0, 2, 5, 1, estacion="atencion"),
+               _en_cola(2, 1, 5, 8, 2, estacion="atencion"),
+               _en_cola(3, 2, 8, 9, 2, estacion="atencion")]
+    por_cola = metrics.metricas_por_cola(eventos, config_colas, "atencion", DURACION)
+    r = metrics.longitud_cola_estacion(eventos, "atencion", DURACION)
+    assert r["longitud_promedio_cola"] == pytest.approx(
+        sum(c["longitud_promedio"] for c in por_cola.values()))
+
+
+def test_cola_estacion_maxima_cuenta_todas_las_colas_a_la_vez():
+    """Cada cola tiene máximo 1, pero entre 1 y 2 esperan dos clientes juntos."""
+    eventos = [_en_cola(1, 0, 2, 5, 1), _en_cola(2, 1, 5, 8, 2)]
+    assert _cola(eventos, cola=1)["longitud_maxima"] == 1
+    assert _cola(eventos, cola=2)["longitud_maxima"] == 1
+    r = metrics.longitud_cola_estacion(eventos, "cajeros", DURACION)
+    assert r["longitud_maxima_cola"] == 2
+
+
+def test_cola_estacion_maxima_no_es_la_suma_de_maximos():
+    """Los máximos de cada cola ocurren en momentos distintos."""
+    eventos = [_en_cola(1, 0, 2, 3, 1), _en_cola(2, 5, 7, 8, 2)]
+    r = metrics.longitud_cola_estacion(eventos, "cajeros", DURACION)
+    assert r["longitud_maxima_cola"] == 1
+
+
+def test_cola_estacion_sin_eventos():
+    r = metrics.longitud_cola_estacion([], "cajeros", DURACION)
+    assert r == {"longitud_promedio_cola": 0.0, "longitud_maxima_cola": 0}
+
+
+@pytest.mark.parametrize("duracion", [0, -5, None, True])
+def test_cola_estacion_duracion_invalida(eventos_base, duracion):
+    with pytest.raises(ValueError):
+        metrics.longitud_cola_estacion(eventos_base, "cajeros", duracion)
+
+
+def test_cola_mas_larga_es_la_de_mayor_promedio():
+    por_cola = {"cola_1": {"longitud_promedio": 0.2, "longitud_maxima": 5},
+                "cola_2": {"longitud_promedio": 0.7, "longitud_maxima": 2}}
+    assert metrics.cola_mas_larga(por_cola) == "cola_2"
+
+
+def test_cola_mas_larga_empate_gana_la_de_menor_numero():
+    por_cola = {"cola_2": {"longitud_promedio": 0.5, "longitud_maxima": 1},
+                "cola_1": {"longitud_promedio": 0.5, "longitud_maxima": 3}}
+    assert metrics.cola_mas_larga(por_cola) == "cola_1"
+
+
+def test_cola_mas_larga_ordena_por_numero_y_no_por_texto():
+    por_cola = {f"cola_{i}": {"longitud_promedio": 0.0, "longitud_maxima": 0}
+                for i in (10, 2, 1)}
+    por_cola["cola_10"]["longitud_promedio"] = 0.1
+    assert metrics.cola_mas_larga(por_cola) == "cola_10"
+    por_cola["cola_10"]["longitud_promedio"] = 0.0
+    assert metrics.cola_mas_larga(por_cola) == "cola_1"
+
+
+def test_cola_mas_larga_todas_vacias_es_la_primera(config_colas):
+    por_cola = metrics.metricas_por_cola([], config_colas, "atencion", DURACION)
+    assert metrics.cola_mas_larga(por_cola) == "cola_1"
+
+
+def test_cola_mas_larga_sin_colas():
+    assert metrics.cola_mas_larga({}) is None
+
+
+# --- Las colas de los resultados de ejemplo (calculadas a mano) ---
+
+def _cargar_ejemplo(nombre):
+    carpeta = Path(__file__).resolve().parents[1] / "examples" / "resultados_ejemplo"
+    resultado = json.loads((carpeta / f"{nombre}_resultado.json").read_text(encoding="utf-8"))
+    config = json.loads((carpeta / f"{nombre}_config.json").read_text(encoding="utf-8"))
+    return resultado["resultado"], config
+
+
+@pytest.mark.parametrize("nombre", ["01_paralelo_cola_unica", "02_secuencial_preferencial"])
+def test_colas_coinciden_con_los_resultados_de_ejemplo(nombre):
+    """Los JSON de ejemplo están redondeados a 4 decimales."""
+    resultado, config = _cargar_ejemplo(nombre)
+    eventos = resultado["eventos_clientes"]
+    duracion = resultado["duracion_total_minutos"]
+    for estacion_id, esperado in resultado["metricas"]["por_estacion"].items():
+        por_cola = metrics.metricas_por_cola(eventos, config, estacion_id, duracion)
+        assert por_cola == {
+            cola: {"longitud_promedio": pytest.approx(datos["longitud_promedio"], abs=1e-4),
+                   "longitud_maxima": datos["longitud_maxima"]}
+            for cola, datos in esperado["por_cola"].items()}
+        estacion = metrics.longitud_cola_estacion(eventos, estacion_id, duracion)
+        assert estacion["longitud_promedio_cola"] == pytest.approx(
+            esperado["longitud_promedio_cola"], abs=1e-4)
+        assert estacion["longitud_maxima_cola"] == esperado["longitud_maxima_cola"]
+        assert metrics.cola_mas_larga(por_cola) == esperado["cola_mas_larga"]
