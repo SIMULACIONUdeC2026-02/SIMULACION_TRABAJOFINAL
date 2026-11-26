@@ -1,22 +1,25 @@
 import json
 from pathlib import Path
+
+import pytest
 from streamlit.testing.v1 import AppTest
 
-from src.app import crear_grafica_comparacion_colas
+from src.app import DIRECTORIO_EJEMPLOS, crear_grafica_comparacion_colas, tabla_por_estacion
 from src.config import validar_config
-from src.app import tabla_por_estacion
+
 
 def generar_json(app):
     app.button(key="generar_configuracion").click().run()
 
 
-def test_app_muestra_formulario_y_resultados_vacios():
+def test_app_muestra_resultados_vacios_antes_de_simular():
     app = AppTest.from_file("../src/app.py", default_timeout=15).run()
 
     assert not app.exception
     assert app.text_input(key="nombre_simulacion")
     assert app.selectbox(key="metodo")
     assert app.button(key="generar_configuracion")
+    assert app.button(key="ejecutar_simulacion")
     assert any(tab.label == "Resultados" for tab in app.tabs)
     assert app.dataframe[0].value.empty
     assert len(app.get("plotly_chart")) == 1
@@ -70,6 +73,51 @@ def test_utilizacion_del_ejemplo_secuencial_muestra_las_dos_estaciones():
         ("servidor_1", "33.3%"),
         ("servidor_2", "33.3%"),
     ]
+
+
+@pytest.mark.parametrize(
+    "ruta", sorted(DIRECTORIO_EJEMPLOS.glob("*.json")), ids=lambda ruta: ruta.stem,
+)
+def test_ejemplo_seleccionado_se_simula_desde_la_app(ruta):
+    config = json.loads(ruta.read_text(encoding="utf-8"))
+    app = AppTest.from_file("../src/app.py", default_timeout=15).run()
+    app.selectbox(key="ejemplo_config").select(ruta.name).run()
+    generar_json(app)
+
+    assert not app.exception
+    assert json.loads(app.json[0].value) == config
+    assert "resultado" not in app.session_state
+
+    app.button(key="ejecutar_simulacion").click().run()
+
+    assert not app.exception
+    assert not app.error
+    resultado = app.session_state["resultado"]["resultado"]
+    eventos = resultado["eventos_clientes"]
+    assert eventos
+    assert eventos[0]["paradas"][0]["estacion_id"] == config["estaciones"][0]["id"]
+    assert resultado["duracion_total_minutos"] >= config["simulacion"]["duracion_minutos"]
+
+
+def test_resultados_muestran_tarjetas_tabla_colas_y_servidores_desde_la_misma_salida():
+    ruta = (
+        Path(__file__).resolve().parents[1] / "examples" / "resultados_ejemplo"
+        / "02_secuencial_preferencial_resultado.json"
+    )
+    salida = json.loads(ruta.read_text(encoding="utf-8"))
+    app = AppTest.from_file("../src/app.py", default_timeout=15).run()
+    app.session_state["resultado"] = salida
+    app.run()
+    app.selectbox(key="selector_estacion_colas").select("atencion").run()
+
+    assert not app.exception
+    assert [metric.value for metric in app.metric[:3]] == ["6.90 min", "1.15", "5"]
+    assert list(app.dataframe[0].value["Estación"]) == ["triaje", "atencion"]
+    fig = json.loads(app.get("plotly_chart")[0].proto.spec)
+    assert fig["data"][0]["x"] == ["cola_1", "cola_2"]
+    assert fig["layout"]["title"]["text"] == "Comparación de colas (Mayor: cola_2)"
+    assert [metric.value for metric in app.metric[3:]] == ["23.3%", "33.3%", "33.3%"]
+    assert len(app.get("progress")) == 3
 
 
 def test_formulario_genera_configuracion_paralela_valida():

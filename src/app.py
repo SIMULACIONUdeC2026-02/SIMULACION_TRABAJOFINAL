@@ -1,4 +1,5 @@
 """Interfaz Streamlit para configurar y consultar simulaciones de colas."""
+import json
 import sys
 from pathlib import Path
 
@@ -17,6 +18,7 @@ from src.engine import simular  # noqa: E402
 
 
 TIPOS_COLA = {"Única": "unica", "Múltiple": "multiple", "Preferencial": "preferencial"}
+DIRECTORIO_EJEMPLOS = Path(_RAIZ_PROYECTO) / "examples" / "configs_ejemplo"
 COLUMNAS_ESTACION = ["Estación", "Espera promedio (min)","Atención promedio (min)","Cola promedio","Cola máxima", "Cola más larga"] 
 
 def _capturar_servicio(prefijo: str, numero: int) -> dict:
@@ -353,6 +355,66 @@ def mostrar_resultados(resultado: dict | None = None) -> None:
         mostrar_utilizacion_servidores(por_estacion)
 
 
+def capturar_configuracion() -> dict:
+    """Lee el formulario y devuelve una configuración del escenario personalizado."""
+    st.subheader("Datos de la simulación")
+    nombre = st.text_input("Nombre de la simulación", value="", key="nombre_simulacion")
+    metodo_ui = st.selectbox(
+        "Método", ["Método 1 (paralelo)", "Método 2 (secuencial)"], key="metodo"
+    )
+    col_duracion, col_semilla, col_llegadas = st.columns(3)
+    duracion = col_duracion.number_input("Duración (min)", min_value=1, value=480, step=1)
+    semilla = col_semilla.number_input("Semilla", min_value=0, value=42, step=1)
+    llegadas = col_llegadas.number_input(
+        "Llegadas por hora", min_value=0.1, value=40.0, step=1.0
+    )
+
+    metodo = "paralelo" if metodo_ui == "Método 1 (paralelo)" else "secuencial"
+    cantidad_estaciones = 1
+    if metodo == "secuencial":
+        cantidad_estaciones = int(st.number_input(
+            "Número de estaciones", min_value=2, value=2, step=1,
+            key="cantidad_estaciones",
+        ))
+
+    estaciones = []
+    for indice in range(cantidad_estaciones):
+        if indice == 0:
+            id_default = "cajeros"
+        elif indice == 1:
+            id_default = "atencion"
+        else:
+            id_default = f"estacion_{indice + 1}"
+        nombre_estacion = f"Estación {indice + 1}"
+        estaciones.append(configurar_estacion(
+            nombre_estacion, f"estacion_{indice + 1}", id_default
+        ))
+
+    estacion_entrada = None
+    if metodo == "secuencial":
+        configurar_salidas(estaciones)
+        ids = [estacion["id"] for estacion in estaciones]
+        estacion_entrada = st.selectbox(
+            "Estación de entrada", ids, key="estacion_entrada"
+        )
+
+    proporcion_preferencial = None
+    if any(estacion["colas"]["tipo"] == "preferencial" for estacion in estaciones):
+        proporcion_preferencial = st.number_input(
+            "Proporción de clientes preferenciales",
+            min_value=0.01,
+            max_value=0.99,
+            value=0.2,
+            step=0.05,
+            key="proporcion_preferencial",
+        )
+
+    return construir_config(
+        nombre, metodo, duracion, semilla, llegadas, estaciones,
+        estacion_entrada, proporcion_preferencial,
+    )
+
+
 def main() -> None:
     st.set_page_config(page_title="Simulación de colas", page_icon="📊", layout="wide")
     st.title("Simulación de sistemas de colas")
@@ -361,62 +423,15 @@ def main() -> None:
 
     with configuracion_tab:
         st.caption("Los tiempos se expresan en minutos y la tasa de llegada en clientes por hora.")
-        st.subheader("Datos de la simulación")
-        nombre = st.text_input("Nombre de la simulación", value="", key="nombre_simulacion")
-        metodo_ui = st.selectbox(
-            "Método", ["Método 1 (paralelo)", "Método 2 (secuencial)"], key="metodo"
+        ejemplos = sorted(ruta.name for ruta in DIRECTORIO_EJEMPLOS.glob("*.json"))
+        ejemplo = st.selectbox(
+            "Escenario", [None, *ejemplos], key="ejemplo_config",
+            format_func=lambda nombre: Path(nombre).stem.replace("_", " ") if nombre else "Personalizado",
         )
-        col_duracion, col_semilla, col_llegadas = st.columns(3)
-        duracion = col_duracion.number_input("Duración (min)", min_value=1, value=480, step=1)
-        semilla = col_semilla.number_input("Semilla", min_value=0, value=42, step=1)
-        llegadas = col_llegadas.number_input(
-            "Llegadas por hora", min_value=0.1, value=40.0, step=1.0
-        )
-
-        metodo = "paralelo" if metodo_ui == "Método 1 (paralelo)" else "secuencial"
-        cantidad_estaciones = 1
-        if metodo == "secuencial":
-            cantidad_estaciones = int(st.number_input(
-                "Número de estaciones", min_value=2, value=2, step=1,
-                key="cantidad_estaciones",
-            ))
-
-        estaciones = []
-        for indice in range(cantidad_estaciones):
-            if indice == 0:
-                id_default = "cajeros"
-            elif indice == 1:
-                id_default = "atencion"
-            else:
-                id_default = f"estacion_{indice + 1}"
-            nombre_estacion = f"Estación {indice + 1}"
-            estaciones.append(configurar_estacion(
-                nombre_estacion, f"estacion_{indice + 1}", id_default
-            ))
-
-        estacion_entrada = None
-        if metodo == "secuencial":
-            configurar_salidas(estaciones)
-            ids = [estacion["id"] for estacion in estaciones]
-            estacion_entrada = st.selectbox(
-                "Estación de entrada", ids, key="estacion_entrada"
-            )
-
-        proporcion_preferencial = None
-        if any(estacion["colas"]["tipo"] == "preferencial" for estacion in estaciones):
-            proporcion_preferencial = st.number_input(
-                "Proporción de clientes preferenciales",
-                min_value=0.01,
-                max_value=0.99,
-                value=0.2,
-                step=0.05,
-                key="proporcion_preferencial",
-            )
-
-        config = construir_config(
-            nombre, metodo, duracion, semilla, llegadas, estaciones,
-            estacion_entrada, proporcion_preferencial,
-        )
+        if ejemplo is None:
+            config = capturar_configuracion()
+        else:
+            config = json.loads((DIRECTORIO_EJEMPLOS / ejemplo).read_text(encoding="utf-8"))
 
         col_generar, col_simular = st.columns(2)
         if col_generar.button("Generar JSON", key="generar_configuracion"):

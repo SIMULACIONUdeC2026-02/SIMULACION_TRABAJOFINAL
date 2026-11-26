@@ -30,9 +30,12 @@ python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
-pytest                             # correr las pruebas
-streamlit run src/app.py           # abrir la interfaz
+python -m pytest                    # correr las pruebas
+python -m streamlit run src/app.py   # abrir la interfaz desde la raíz del repo
 ```
+
+En **Configuración**, selecciona un escenario de ejemplo o configura uno
+personalizado. Pulsa **Simular** y abre la pestaña **Resultados**.
 
 ## Estructura
 

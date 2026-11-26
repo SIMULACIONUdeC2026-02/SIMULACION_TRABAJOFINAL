@@ -8,9 +8,9 @@ configuración corra en el motor.
 """
 import pytest
 
-from config import validar_config
-from topologias import construir_config
+from src.config import validar_config
 from src.engine import simular
+from src.topologias import construir_config
 
 METODO = "paralelo"
 VARIANTE = "colas_multiples_preferencial_multiples_servidores"
