@@ -23,6 +23,8 @@ from pathlib import Path
 import pytest
 
 from src import metrics
+from src.contrato_salida import CLAVES_ESTACION, CLAVES_SISTEMA, validar_resultado
+from src.engine import simular
 
 DURACION = 20
 
@@ -709,3 +711,130 @@ def test_espera_y_atencion_duracion_invalida(eventos_base, duracion):
         _espera(eventos_base, duracion=duracion)
     with pytest.raises(ValueError):
         _atencion(eventos_base, duracion=duracion)
+
+
+# --------------------------------------------------------------------------
+# calcular_metricas: bloque "metricas" completo (Issue #17)
+# --------------------------------------------------------------------------
+
+CARPETA_CONFIGS = Path(__file__).resolve().parents[1] / "examples" / "configs_ejemplo"
+CONFIGS_EJEMPLO = sorted(p.name for p in CARPETA_CONFIGS.glob("*.json"))
+
+
+def _aproximado(valor):
+    """Compara números con la precisión de los ejemplos (4 decimales)."""
+    if isinstance(valor, dict):
+        return {clave: _aproximado(v) for clave, v in valor.items()}
+    if isinstance(valor, (int, float)) and not isinstance(valor, bool):
+        return pytest.approx(valor, abs=1e-4)
+    return valor
+
+
+def test_calcular_metricas_forma_del_contrato(eventos_base, config_base):
+    r = metrics.calcular_metricas(eventos_base, config_base, DURACION)
+    assert set(r) == {"sistema_completo", "por_estacion"}
+    assert set(r["sistema_completo"]) == CLAVES_SISTEMA
+    assert list(r["por_estacion"]) == ["cajeros", "farmacia"]
+    for datos in r["por_estacion"].values():
+        assert set(datos) == CLAVES_ESTACION
+
+
+def test_calcular_metricas_caso_base(eventos_base, config_base):
+    r = metrics.calcular_metricas(eventos_base, config_base, DURACION)
+    assert r["sistema_completo"] == {
+        "tiempo_promedio_en_sistema": pytest.approx(4.375),
+        "clientes_promedio_en_sistema": pytest.approx(1.75),
+        "clientes_totales_atendidos": 8,
+    }
+    cajeros = r["por_estacion"]["cajeros"]
+    assert cajeros["tiempo_promedio_espera_cola"] == pytest.approx(0.375)
+    assert cajeros["tiempo_promedio_atencion"] == pytest.approx(4.0)
+    assert cajeros["longitud_promedio_cola"] == pytest.approx(0.15)
+    assert cajeros["longitud_maxima_cola"] == 1
+    assert cajeros["por_servidor"]["servidor_3"]["utilizacion"] == pytest.approx(0.4)
+    assert cajeros["cola_mas_larga"] == "cola_1"
+
+
+def test_calcular_metricas_reutiliza_las_funciones_de_cada_metrica(eventos_base, config_base):
+    cajeros = metrics.calcular_metricas(eventos_base, config_base, DURACION)["por_estacion"]["cajeros"]
+    assert cajeros["por_servidor"] == metrics.calculo_ocioso_estacion(
+        eventos_base, config_base, "cajeros", DURACION)
+    assert cajeros["por_cola"] == metrics.metricas_por_cola(
+        eventos_base, config_base, "cajeros", DURACION)
+
+
+def test_calcular_metricas_estacion_sin_clientes(eventos_base, config_base):
+    """"farmacia" está en la config pero nadie pasó por ella."""
+    farmacia = metrics.calcular_metricas(eventos_base, config_base, DURACION)["por_estacion"]["farmacia"]
+    assert farmacia["tiempo_promedio_espera_cola"] == 0.0
+    assert farmacia["tiempo_promedio_atencion"] == 0.0
+    assert farmacia["longitud_maxima_cola"] == 0
+    assert farmacia["por_servidor"]["servidor_1"]["tiempo_ocioso_minutos"] == pytest.approx(DURACION)
+    assert farmacia["cola_mas_larga"] == "cola_1"
+
+
+def test_calcular_metricas_sin_eventos(config_base):
+    r = metrics.calcular_metricas([], config_base, DURACION)
+    assert r["sistema_completo"] == {"tiempo_promedio_en_sistema": 0.0,
+                                     "clientes_promedio_en_sistema": 0.0,
+                                     "clientes_totales_atendidos": 0}
+
+
+@pytest.mark.parametrize("duracion", [0, -5, None, True])
+def test_calcular_metricas_duracion_invalida(eventos_base, config_base, duracion):
+    with pytest.raises(ValueError):
+        metrics.calcular_metricas(eventos_base, config_base, duracion)
+
+
+@pytest.mark.parametrize("nombre", ["01_paralelo_cola_unica", "02_secuencial_preferencial"])
+def test_calcular_metricas_coincide_con_los_resultados_de_ejemplo(nombre):
+    """Las métricas calculadas a mano en examples/resultados_ejemplo/."""
+    resultado, config = _cargar_ejemplo(nombre)
+    calculadas = metrics.calcular_metricas(resultado["eventos_clientes"], config,
+                                           resultado["duracion_total_minutos"])
+    assert calculadas == _aproximado(resultado["metricas"])
+
+
+# --- Integración con el motor: simular() ya entrega "metricas" ---
+
+def _simular_ejemplo(nombre):
+    config = json.loads((CARPETA_CONFIGS / nombre).read_text(encoding="utf-8"))
+    return simular(config)["resultado"], config
+
+
+@pytest.mark.parametrize("archivo", CONFIGS_EJEMPLO)
+def test_simular_los_8_ejemplos_incluye_metricas_validas(archivo):
+    resultado, config = _simular_ejemplo(archivo)
+    assert validar_resultado(resultado, config, exigir_metricas=True) == []
+    metricas = resultado["metricas"]
+    assert set(metricas["por_estacion"]) == {e["id"] for e in config["estaciones"]}
+    for datos in metricas["por_estacion"].values():
+        for servidor in datos["por_servidor"].values():
+            assert 0.0 <= servidor["utilizacion"] <= 1.0
+        assert datos["longitud_maxima_cola"] >= max(
+            c["longitud_maxima"] for c in datos["por_cola"].values())
+        assert datos["cola_mas_larga"] in datos["por_cola"]
+
+
+@pytest.mark.parametrize("archivo", CONFIGS_EJEMPLO)
+def test_simular_little_coincide_con_la_integracion(archivo):
+    """El motor atiende a todos antes de T: L por Little = L integrando N(t)."""
+    resultado, _ = _simular_ejemplo(archivo)
+    eventos, duracion = resultado["eventos_clientes"], resultado["duracion_total_minutos"]
+    assert resultado["metricas"]["sistema_completo"]["clientes_promedio_en_sistema"] == pytest.approx(
+        metrics.clientes_promedio_por_integracion(eventos, duracion))
+
+
+def test_simular_clientes_atendidos_cuadran_con_los_servidores():
+    resultado, _ = _simular_ejemplo("05_secuencial_cola_unica.json")
+    metricas = resultado["metricas"]
+    total = metricas["sistema_completo"]["clientes_totales_atendidos"]
+    assert total == len(resultado["eventos_clientes"])
+    for datos in metricas["por_estacion"].values():
+        atendidos = sum(s["clientes_atendidos"] for s in datos["por_servidor"].values())
+        assert atendidos <= total
+
+
+def test_simular_metricas_se_pueden_escribir_como_json():
+    resultado, _ = _simular_ejemplo("03_paralelo_preferencial.json")
+    assert json.loads(json.dumps(resultado["metricas"])) == resultado["metricas"]
