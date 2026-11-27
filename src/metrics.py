@@ -485,6 +485,66 @@ def cola_mas_larga(por_cola: dict) -> str | None:
 
 
 # --------------------------------------------------------------------------
+# Espera en cola y tiempo de atención por estación (Issue #17)
+# --------------------------------------------------------------------------
+
+def tiempo_promedio_espera_cola(eventos_clientes: list[dict], estacion_id: str,
+                                duracion_total_minutos: float) -> float:
+    """
+    Tiempo promedio que esperan en cola los clientes de una estación (Wq).
+
+    Wq = promedio de (tiempo_inicio_servicio - tiempo_inicio_espera) de las
+    paradas que empezaron a ser atendidas antes de terminar la simulación
+    (inicio de servicio definido y <= T). Quien sigue en cola al final no
+    entra en el promedio: todavía no se sabe cuánto va a esperar.
+
+    Args:
+        eventos_clientes: lista de eventos según el contrato de salida.
+        estacion_id: "id" de texto de la estación.
+        duracion_total_minutos: duración simulada (T), mayor que 0.
+
+    Returns:
+        Wq en minutos. 0.0 si nadie empezó a ser atendido en la estación.
+    """
+    _validar_duracion(duracion_total_minutos)
+    esperas = [p["tiempo_inicio_servicio"] - p["tiempo_inicio_espera"]
+               for p in paradas_por_estacion(eventos_clientes, estacion_id)
+               if p.get("tiempo_inicio_servicio") is not None
+               and p["tiempo_inicio_servicio"] <= duracion_total_minutos]
+    if not esperas:
+        return 0.0
+    return sum(esperas) / len(esperas)
+
+
+def tiempo_promedio_atencion(eventos_clientes: list[dict], estacion_id: str,
+                             duracion_total_minutos: float) -> float:
+    """
+    Tiempo promedio de atención (servicio) en una estación.
+
+    Promedio de (tiempo_fin_servicio - tiempo_inicio_servicio) de las paradas
+    cuyo servicio terminó antes de terminar la simulación (fin definido y
+    <= T), igual que "clientes_atendidos" de cada servidor.
+
+    Args:
+        eventos_clientes: lista de eventos según el contrato de salida.
+        estacion_id: "id" de texto de la estación.
+        duracion_total_minutos: duración simulada (T), mayor que 0.
+
+    Returns:
+        Tiempo promedio de atención en minutos. 0.0 si ningún servicio terminó.
+    """
+    _validar_duracion(duracion_total_minutos)
+    servicios = [p["tiempo_fin_servicio"] - p["tiempo_inicio_servicio"]
+                 for p in paradas_por_estacion(eventos_clientes, estacion_id)
+                 if p.get("tiempo_inicio_servicio") is not None
+                 and p.get("tiempo_fin_servicio") is not None
+                 and p["tiempo_fin_servicio"] <= duracion_total_minutos]
+    if not servicios:
+        return 0.0
+    return sum(servicios) / len(servicios)
+
+
+# --------------------------------------------------------------------------
 # Resumen completo (se completa con los Issues #16 y #17)
 # --------------------------------------------------------------------------
 

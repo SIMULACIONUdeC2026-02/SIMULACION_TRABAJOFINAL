@@ -620,3 +620,92 @@ def test_colas_coinciden_con_los_resultados_de_ejemplo(nombre):
             esperado["longitud_promedio_cola"], abs=1e-4)
         assert estacion["longitud_maxima_cola"] == esperado["longitud_maxima_cola"]
         assert metrics.cola_mas_larga(por_cola) == esperado["cola_mas_larga"]
+
+
+# --------------------------------------------------------------------------
+# Espera en cola y tiempo de atención por estación (Issue #17)
+#
+# Caso base: esperan 1 minuto los clientes 4, 5 y 6 -> Wq = 3 / 8 = 0.375
+# Atención (salida - inicio): 5+3+6+6+2+5+2+3 = 32 -> 32 / 8 = 4.0
+# --------------------------------------------------------------------------
+
+def _espera(eventos, duracion=DURACION, estacion="cajeros"):
+    return metrics.tiempo_promedio_espera_cola(eventos, estacion, duracion)
+
+
+def _atencion(eventos, duracion=DURACION, estacion="cajeros"):
+    return metrics.tiempo_promedio_atencion(eventos, estacion, duracion)
+
+
+def test_espera_cola_caso_base(eventos_base):
+    assert _espera(eventos_base) == pytest.approx(0.375)
+
+
+def test_atencion_caso_base(eventos_base):
+    assert _atencion(eventos_base) == pytest.approx(4.0)
+
+
+def test_espera_y_atencion_suman_el_tiempo_en_la_estacion(eventos_base):
+    """Con una sola parada, Wq + tiempo de atención = W."""
+    w = metrics.tiempo_promedio_en_sistema(eventos_base, DURACION)
+    assert _espera(eventos_base) + _atencion(eventos_base) == pytest.approx(w)
+
+
+def test_espera_y_atencion_sin_eventos_son_cero():
+    assert _espera([]) == 0.0
+    assert _atencion([]) == 0.0
+
+
+def test_espera_sin_nadie_que_espere():
+    eventos = [_cliente(1, 0, 0, 5, 1), _cliente(2, 6, 6, 9, 1)]
+    assert _espera(eventos) == 0.0
+    assert _atencion(eventos) == pytest.approx(4.0)
+
+
+def test_espera_y_atencion_ignoran_otras_estaciones(eventos_base):
+    eventos = eventos_base + [_cliente(9, 0, 10, 20, 1, estacion="farmacia")]
+    assert _espera(eventos) == pytest.approx(0.375)
+    assert _espera(eventos, estacion="farmacia") == pytest.approx(10)
+    assert _atencion(eventos, estacion="farmacia") == pytest.approx(10)
+
+
+def test_espera_y_atencion_usan_la_parada_de_cada_estacion():
+    cliente = _cliente(1, 0, 1, 4, 1, estacion="triaje")
+    cliente["paradas"].append({
+        "estacion_id": "atencion", "tiempo_inicio_espera": 4,
+        "tiempo_inicio_servicio": 7, "tiempo_fin_servicio": 9,
+        "servidor_asignado": 1, "cola_asignada": 1})
+    cliente["tiempo_salida_sistema"] = 9
+    assert _espera([cliente], estacion="triaje") == pytest.approx(1)
+    assert _atencion([cliente], estacion="triaje") == pytest.approx(3)
+    assert _espera([cliente], estacion="atencion") == pytest.approx(3)
+    assert _atencion([cliente], estacion="atencion") == pytest.approx(2)
+
+
+def test_espera_cliente_que_sigue_en_cola_no_entra_en_el_promedio():
+    eventos = [_cliente(1, 0, 2, 5, 1), _cliente(2, 15, None, None, None)]
+    assert _espera(eventos) == pytest.approx(2)
+
+
+def test_espera_servicio_que_empieza_despues_del_final_no_cuenta():
+    eventos = [_cliente(1, 0, 2, 5, 1), _cliente(2, 18, 25, 30, 1)]
+    assert _espera(eventos) == pytest.approx(2)
+
+
+def test_atencion_servicio_sin_terminar_no_entra_en_el_promedio():
+    eventos = [_cliente(1, 0, 0, 4, 1), _cliente(2, 15, 16, None, 1),
+               _cliente(3, 16, 17, 25, 2)]
+    assert _atencion(eventos) == pytest.approx(4)
+    assert _espera(eventos) == pytest.approx((0 + 1 + 1) / 3)
+
+
+def test_atencion_termina_exactamente_en_el_final_si_cuenta():
+    assert _atencion([_cliente(1, 0, 10, 20, 1)]) == pytest.approx(10)
+
+
+@pytest.mark.parametrize("duracion", [0, -5, None, True, "20"])
+def test_espera_y_atencion_duracion_invalida(eventos_base, duracion):
+    with pytest.raises(ValueError):
+        _espera(eventos_base, duracion=duracion)
+    with pytest.raises(ValueError):
+        _atencion(eventos_base, duracion=duracion)
