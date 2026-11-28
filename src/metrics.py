@@ -291,13 +291,310 @@ def calculo_ocioso_estacion(eventos_clientes: list[dict], config: dict,
 
 
 # --------------------------------------------------------------------------
-# Resumen completo (se completa con los Issues #16 y #17)
+# Longitud de las colas (Issue #16)
+#
+# Una cola se identifica con (estacion_id, cola_asignada). Un cliente está en
+# esa cola desde "tiempo_inicio_espera" hasta "tiempo_inicio_servicio".
+# Lq(t) = clientes esperando en la cola en el instante t.
 # --------------------------------------------------------------------------
+
+def _buscar_estacion(config: dict, estacion_id: str) -> dict:
+    """
+    Busca una estación de la configuración por su "id".
+
+    Args:
+        config: configuración según el contrato de entrada.
+        estacion_id: "id" de texto de la estación.
+
+    Returns:
+        El diccionario de la estación.
+
+    Raises:
+        ValueError: si la estación no existe en la configuración.
+    """
+    estacion = next((e for e in config.get("estaciones", [])
+                     if e.get("id") == estacion_id), None)
+    if estacion is None:
+        raise ValueError(f"La estación {estacion_id!r} no existe en la configuración")
+    return estacion
+
+
+def _intervalos_en_cola(paradas: list[dict],
+                        duracion_total_minutos: float) -> list[tuple[float, float]]:
+    """
+    Intervalos de tiempo en que cada parada estuvo esperando en cola.
+
+    Cada intervalo es [tiempo_inicio_espera, tiempo_inicio_servicio], recortado
+    a [0, T]. Si el cliente sigue en cola al final (inicio de servicio None),
+    cuenta hasta T. Los clientes que no esperaron (intervalo de largo 0) no
+    aparecen.
+
+    Args:
+        paradas: paradas de una cola (contrato de salida).
+        duracion_total_minutos: duración simulada (T).
+
+    Returns:
+        Lista de tuplas (inicio, fin) con fin > inicio.
+    """
+    intervalos = []
+    for p in paradas:
+        inicio = max(p["tiempo_inicio_espera"], 0.0)
+        fin = p.get("tiempo_inicio_servicio")
+        fin = duracion_total_minutos if fin is None else min(fin, duracion_total_minutos)
+        if fin > inicio:
+            intervalos.append((inicio, fin))
+    return intervalos
+
+
+def _maximo_simultaneo(intervalos: list[tuple[float, float]]) -> int:
+    """
+    Mayor cantidad de intervalos abiertos al mismo tiempo.
+
+    Recorre los cambios en orden de tiempo: +1 cuando un cliente entra a la
+    cola y -1 cuando pasa a servicio. En un empate de tiempos primero sale el
+    que pasa a servicio y luego entra el que llega (el -1 va antes del +1).
+
+    Args:
+        intervalos: lista de tuplas (inicio, fin).
+
+    Returns:
+        Longitud máxima de la cola (0 si no hay intervalos).
+    """
+    cambios = sorted([(fin, -1) for _, fin in intervalos]
+                     + [(inicio, 1) for inicio, _ in intervalos])
+    actual = maximo = 0
+    for _, cambio in cambios:
+        actual += cambio
+        maximo = max(maximo, actual)
+    return maximo
+
+
+def longitud_cola(eventos_clientes: list[dict], estacion_id: str, cola: int,
+                  duracion_total_minutos: float) -> dict:
+    """
+    Longitud promedio y máxima de una cola de una estación.
+
+    La longitud promedio es en el tiempo: (1 / T) · ∫ Lq(t) dt sobre [0, T],
+    igual que clientes_promedio_por_integracion pero con el tiempo en cola.
+    La integral es la suma de los minutos que cada cliente esperó.
+
+    Args:
+        eventos_clientes: lista de eventos según el contrato de salida.
+        estacion_id: "id" de texto de la estación.
+        cola: posición de la cola (1, 2, ...); es el valor de "cola_asignada".
+        duracion_total_minutos: duración simulada (T), mayor que 0.
+
+    Returns:
+        {"longitud_promedio", "longitud_maxima"}, la forma de una entrada de
+        "por_cola" en el contrato.
+    """
+    _validar_duracion(duracion_total_minutos)
+    paradas = [p for p in paradas_por_estacion(eventos_clientes, estacion_id)
+               if p.get("cola_asignada") == cola]
+    intervalos = _intervalos_en_cola(paradas, duracion_total_minutos)
+    area = sum(fin - inicio for inicio, fin in intervalos)
+    return {
+        "longitud_promedio": area / duracion_total_minutos,
+        "longitud_maxima": _maximo_simultaneo(intervalos),
+    }
+
+
+def metricas_por_cola(eventos_clientes: list[dict], config: dict,
+                      estacion_id: str, duracion_total_minutos: float) -> dict:
+    """
+    Longitud promedio y máxima de todas las colas de una estación.
+
+    Sirve para todos los tipos de cola: "unica" (cola_1), "multiple"
+    (cola_1 ... cola_k) y "preferencial" (cola_1 = preferenciales,
+    cola_2 = normales).
+
+    Args:
+        eventos_clientes: lista de eventos según el contrato de salida.
+        config: configuración usada (da "colas.cantidad" de la estación).
+        estacion_id: "id" de texto de la estación.
+        duracion_total_minutos: duración simulada (T), mayor que 0.
+
+    Returns:
+        El bloque "por_cola" del contrato: {"cola_1": {...}, "cola_2": {...}},
+        con una entrada por cada cola de la configuración, aunque esté vacía.
+
+    Raises:
+        ValueError: si la estación no existe en la configuración.
+    """
+    estacion = _buscar_estacion(config, estacion_id)
+    cantidad = estacion.get("colas", {}).get("cantidad", 1)
+    return {
+        f"cola_{i}": longitud_cola(eventos_clientes, estacion_id, i,
+                                   duracion_total_minutos)
+        for i in range(1, cantidad + 1)
+    }
+
+
+def longitud_cola_estacion(eventos_clientes: list[dict], estacion_id: str,
+                           duracion_total_minutos: float) -> dict:
+    """
+    Longitud promedio y máxima de la cola de una estación, con todas sus colas juntas.
+
+    - Promedio: (1 / T) · ∫ Lq(t) dt con Lq(t) = clientes esperando en
+      cualquiera de sus colas. Es igual a la suma de las longitudes promedio
+      de cada cola.
+    - Máxima: mayor cantidad de clientes esperando a la vez en toda la
+      estación. No es la suma de los máximos de cada cola, porque esos máximos
+      pueden ocurrir en momentos distintos.
+
+    Args:
+        eventos_clientes: lista de eventos según el contrato de salida.
+        estacion_id: "id" de texto de la estación.
+        duracion_total_minutos: duración simulada (T), mayor que 0.
+
+    Returns:
+        {"longitud_promedio_cola", "longitud_maxima_cola"}, las claves de
+        "por_estacion" en el contrato.
+    """
+    _validar_duracion(duracion_total_minutos)
+    intervalos = _intervalos_en_cola(
+        paradas_por_estacion(eventos_clientes, estacion_id), duracion_total_minutos)
+    area = sum(fin - inicio for inicio, fin in intervalos)
+    return {
+        "longitud_promedio_cola": area / duracion_total_minutos,
+        "longitud_maxima_cola": _maximo_simultaneo(intervalos),
+    }
+
+
+def cola_mas_larga(por_cola: dict) -> str | None:
+    """
+    Cola con mayor longitud promedio de una estación.
+
+    Criterio (docs/metricas.md): gana la de mayor "longitud_promedio"; en un
+    empate, la de menor número (cola_1 antes que cola_2).
+
+    Args:
+        por_cola: bloque "por_cola" de una estación
+            ({"cola_1": {"longitud_promedio": ...}, ...}).
+
+    Returns:
+        La clave de la cola más larga ("cola_N"), o None si no hay colas.
+    """
+    ordenadas = sorted(por_cola, key=lambda clave: int(clave.rsplit("_", 1)[1]))
+    mejor = None
+    for clave in ordenadas:
+        if mejor is None or (por_cola[clave]["longitud_promedio"]
+                             > por_cola[mejor]["longitud_promedio"]):
+            mejor = clave
+    return mejor
+
+
+# --------------------------------------------------------------------------
+# Espera en cola y tiempo de atención por estación (Issue #17)
+# --------------------------------------------------------------------------
+
+def tiempo_promedio_espera_cola(eventos_clientes: list[dict], estacion_id: str,
+                                duracion_total_minutos: float) -> float:
+    """
+    Tiempo promedio que esperan en cola los clientes de una estación (Wq).
+
+    Wq = promedio de (tiempo_inicio_servicio - tiempo_inicio_espera) de las
+    paradas que empezaron a ser atendidas antes de terminar la simulación
+    (inicio de servicio definido y <= T). Quien sigue en cola al final no
+    entra en el promedio: todavía no se sabe cuánto va a esperar.
+
+    Args:
+        eventos_clientes: lista de eventos según el contrato de salida.
+        estacion_id: "id" de texto de la estación.
+        duracion_total_minutos: duración simulada (T), mayor que 0.
+
+    Returns:
+        Wq en minutos. 0.0 si nadie empezó a ser atendido en la estación.
+    """
+    _validar_duracion(duracion_total_minutos)
+    esperas = [p["tiempo_inicio_servicio"] - p["tiempo_inicio_espera"]
+               for p in paradas_por_estacion(eventos_clientes, estacion_id)
+               if p.get("tiempo_inicio_servicio") is not None
+               and p["tiempo_inicio_servicio"] <= duracion_total_minutos]
+    if not esperas:
+        return 0.0
+    return sum(esperas) / len(esperas)
+
+
+def tiempo_promedio_atencion(eventos_clientes: list[dict], estacion_id: str,
+                             duracion_total_minutos: float) -> float:
+    """
+    Tiempo promedio de atención (servicio) en una estación.
+
+    Promedio de (tiempo_fin_servicio - tiempo_inicio_servicio) de las paradas
+    cuyo servicio terminó antes de terminar la simulación (fin definido y
+    <= T), igual que "clientes_atendidos" de cada servidor.
+
+    Args:
+        eventos_clientes: lista de eventos según el contrato de salida.
+        estacion_id: "id" de texto de la estación.
+        duracion_total_minutos: duración simulada (T), mayor que 0.
+
+    Returns:
+        Tiempo promedio de atención en minutos. 0.0 si ningún servicio terminó.
+    """
+    _validar_duracion(duracion_total_minutos)
+    servicios = [p["tiempo_fin_servicio"] - p["tiempo_inicio_servicio"]
+                 for p in paradas_por_estacion(eventos_clientes, estacion_id)
+                 if p.get("tiempo_inicio_servicio") is not None
+                 and p.get("tiempo_fin_servicio") is not None
+                 and p["tiempo_fin_servicio"] <= duracion_total_minutos]
+    if not servicios:
+        return 0.0
+    return sum(servicios) / len(servicios)
+
+
+# --------------------------------------------------------------------------
+# Resumen completo (Issue #17)
+# --------------------------------------------------------------------------
+
+def metricas_estacion(eventos_clientes: list[dict], config: dict,
+                      estacion_id: str, duracion_total_minutos: float) -> dict:
+    """
+    Calcula el bloque de métricas de una estación.
+
+    Args:
+        eventos_clientes: lista de eventos según el contrato de salida.
+        config: configuración usada (servidores y colas de la estación).
+        estacion_id: "id" de texto de la estación.
+        duracion_total_minutos: duración simulada (T), mayor que 0.
+
+    Returns:
+        Un elemento de "por_estacion" según docs/contratos.md:
+        tiempo_promedio_espera_cola, tiempo_promedio_atencion,
+        longitud_promedio_cola, longitud_maxima_cola, por_servidor, por_cola
+        y cola_mas_larga.
+
+    Raises:
+        ValueError: si la estación no existe o la duración no es válida.
+    """
+    por_cola = metricas_por_cola(eventos_clientes, config, estacion_id,
+                                 duracion_total_minutos)
+    colas = longitud_cola_estacion(eventos_clientes, estacion_id,
+                                   duracion_total_minutos)
+    return {
+        "tiempo_promedio_espera_cola": tiempo_promedio_espera_cola(
+            eventos_clientes, estacion_id, duracion_total_minutos),
+        "tiempo_promedio_atencion": tiempo_promedio_atencion(
+            eventos_clientes, estacion_id, duracion_total_minutos),
+        "longitud_promedio_cola": colas["longitud_promedio_cola"],
+        "longitud_maxima_cola": colas["longitud_maxima_cola"],
+        "por_servidor": calculo_ocioso_estacion(eventos_clientes, config,
+                                                estacion_id, duracion_total_minutos),
+        "por_cola": por_cola,
+        "cola_mas_larga": cola_mas_larga(por_cola),
+    }
+
 
 def calcular_metricas(eventos_clientes: list[dict], config: dict,
                       duracion_total_minutos: float) -> dict:
     """
     Calcula las métricas del sistema completo y de cada estación.
+
+    Es la función que llama simular() (src/engine.py) para armar el bloque
+    "metricas" del contrato de salida. Las estaciones salen de la
+    configuración, así que aparecen todas aunque ningún cliente haya pasado
+    por alguna (con sus métricas en 0).
 
     Args:
         eventos_clientes: un dict por cliente, con tiempo_entrada_sistema,
@@ -309,7 +606,23 @@ def calcular_metricas(eventos_clientes: list[dict], config: dict,
     Returns:
         Diccionario "metricas" con "sistema_completo" y "por_estacion",
         según docs/contratos.md.
+
+    Raises:
+        ValueError: si la duración no es un número mayor que 0.
     """
-    raise NotImplementedError(
-        "Pendiente: Equipo 3 (longitud de colas #16 y resumen completo #17)"
-    )
+    _validar_duracion(duracion_total_minutos)
+    return {
+        "sistema_completo": {
+            "tiempo_promedio_en_sistema": tiempo_promedio_en_sistema(
+                eventos_clientes, duracion_total_minutos),
+            "clientes_promedio_en_sistema": clientes_promedio_en_sistema(
+                eventos_clientes, duracion_total_minutos),
+            "clientes_totales_atendidos": clientes_totales_atendidos(
+                eventos_clientes, duracion_total_minutos),
+        },
+        "por_estacion": {
+            estacion["id"]: metricas_estacion(eventos_clientes, config,
+                                              estacion["id"], duracion_total_minutos)
+            for estacion in config.get("estaciones", [])
+        },
+    }
