@@ -264,8 +264,9 @@ de `src/app.py`) y `examples/ejecutar_engine.py`. Hace todo el recorrido:
 1. `validar_config(config)`: si hay errores, lanza `ValueError` con la lista completa.
 2. `ejecutar_simulacion(config)`: genera los eventos crudos.
 3. `calcular_metricas(eventos_clientes, config, duracion_total_minutos)`: agrega el
-   bloque `metricas`. Mientras Métricas no lo implemente (#17) lanza
-   `NotImplementedError`; `simular` lo atrapa y devuelve el resultado **sin** `metricas`.
+   bloque `metricas` completo (sistema, estaciones, servidores y colas; ver
+   `docs/metricas.md`). Si llegara a lanzar `NotImplementedError`, `simular` lo
+   atrapa y devuelve el resultado **sin** `metricas`.
 4. `validar_resultado(resultado, config)`: si la salida no respeta el contrato lanza
    `RuntimeError` (sería un error interno del motor, no de la configuración).
 5. Devuelve `{"resultado": resultado}`, el mismo formato de

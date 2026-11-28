@@ -485,13 +485,116 @@ def cola_mas_larga(por_cola: dict) -> str | None:
 
 
 # --------------------------------------------------------------------------
-# Resumen completo (se completa con los Issues #16 y #17)
+# Espera en cola y tiempo de atención por estación (Issue #17)
 # --------------------------------------------------------------------------
+
+def tiempo_promedio_espera_cola(eventos_clientes: list[dict], estacion_id: str,
+                                duracion_total_minutos: float) -> float:
+    """
+    Tiempo promedio que esperan en cola los clientes de una estación (Wq).
+
+    Wq = promedio de (tiempo_inicio_servicio - tiempo_inicio_espera) de las
+    paradas que empezaron a ser atendidas antes de terminar la simulación
+    (inicio de servicio definido y <= T). Quien sigue en cola al final no
+    entra en el promedio: todavía no se sabe cuánto va a esperar.
+
+    Args:
+        eventos_clientes: lista de eventos según el contrato de salida.
+        estacion_id: "id" de texto de la estación.
+        duracion_total_minutos: duración simulada (T), mayor que 0.
+
+    Returns:
+        Wq en minutos. 0.0 si nadie empezó a ser atendido en la estación.
+    """
+    _validar_duracion(duracion_total_minutos)
+    esperas = [p["tiempo_inicio_servicio"] - p["tiempo_inicio_espera"]
+               for p in paradas_por_estacion(eventos_clientes, estacion_id)
+               if p.get("tiempo_inicio_servicio") is not None
+               and p["tiempo_inicio_servicio"] <= duracion_total_minutos]
+    if not esperas:
+        return 0.0
+    return sum(esperas) / len(esperas)
+
+
+def tiempo_promedio_atencion(eventos_clientes: list[dict], estacion_id: str,
+                             duracion_total_minutos: float) -> float:
+    """
+    Tiempo promedio de atención (servicio) en una estación.
+
+    Promedio de (tiempo_fin_servicio - tiempo_inicio_servicio) de las paradas
+    cuyo servicio terminó antes de terminar la simulación (fin definido y
+    <= T), igual que "clientes_atendidos" de cada servidor.
+
+    Args:
+        eventos_clientes: lista de eventos según el contrato de salida.
+        estacion_id: "id" de texto de la estación.
+        duracion_total_minutos: duración simulada (T), mayor que 0.
+
+    Returns:
+        Tiempo promedio de atención en minutos. 0.0 si ningún servicio terminó.
+    """
+    _validar_duracion(duracion_total_minutos)
+    servicios = [p["tiempo_fin_servicio"] - p["tiempo_inicio_servicio"]
+                 for p in paradas_por_estacion(eventos_clientes, estacion_id)
+                 if p.get("tiempo_inicio_servicio") is not None
+                 and p.get("tiempo_fin_servicio") is not None
+                 and p["tiempo_fin_servicio"] <= duracion_total_minutos]
+    if not servicios:
+        return 0.0
+    return sum(servicios) / len(servicios)
+
+
+# --------------------------------------------------------------------------
+# Resumen completo (Issue #17)
+# --------------------------------------------------------------------------
+
+def metricas_estacion(eventos_clientes: list[dict], config: dict,
+                      estacion_id: str, duracion_total_minutos: float) -> dict:
+    """
+    Calcula el bloque de métricas de una estación.
+
+    Args:
+        eventos_clientes: lista de eventos según el contrato de salida.
+        config: configuración usada (servidores y colas de la estación).
+        estacion_id: "id" de texto de la estación.
+        duracion_total_minutos: duración simulada (T), mayor que 0.
+
+    Returns:
+        Un elemento de "por_estacion" según docs/contratos.md:
+        tiempo_promedio_espera_cola, tiempo_promedio_atencion,
+        longitud_promedio_cola, longitud_maxima_cola, por_servidor, por_cola
+        y cola_mas_larga.
+
+    Raises:
+        ValueError: si la estación no existe o la duración no es válida.
+    """
+    por_cola = metricas_por_cola(eventos_clientes, config, estacion_id,
+                                 duracion_total_minutos)
+    colas = longitud_cola_estacion(eventos_clientes, estacion_id,
+                                   duracion_total_minutos)
+    return {
+        "tiempo_promedio_espera_cola": tiempo_promedio_espera_cola(
+            eventos_clientes, estacion_id, duracion_total_minutos),
+        "tiempo_promedio_atencion": tiempo_promedio_atencion(
+            eventos_clientes, estacion_id, duracion_total_minutos),
+        "longitud_promedio_cola": colas["longitud_promedio_cola"],
+        "longitud_maxima_cola": colas["longitud_maxima_cola"],
+        "por_servidor": calculo_ocioso_estacion(eventos_clientes, config,
+                                                estacion_id, duracion_total_minutos),
+        "por_cola": por_cola,
+        "cola_mas_larga": cola_mas_larga(por_cola),
+    }
+
 
 def calcular_metricas(eventos_clientes: list[dict], config: dict,
                       duracion_total_minutos: float) -> dict:
     """
     Calcula las métricas del sistema completo y de cada estación.
+
+    Es la función que llama simular() (src/engine.py) para armar el bloque
+    "metricas" del contrato de salida. Las estaciones salen de la
+    configuración, así que aparecen todas aunque ningún cliente haya pasado
+    por alguna (con sus métricas en 0).
 
     Args:
         eventos_clientes: un dict por cliente, con tiempo_entrada_sistema,
@@ -503,7 +606,23 @@ def calcular_metricas(eventos_clientes: list[dict], config: dict,
     Returns:
         Diccionario "metricas" con "sistema_completo" y "por_estacion",
         según docs/contratos.md.
+
+    Raises:
+        ValueError: si la duración no es un número mayor que 0.
     """
-    raise NotImplementedError(
-        "Pendiente: Equipo 3 (longitud de colas #16 y resumen completo #17)"
-    )
+    _validar_duracion(duracion_total_minutos)
+    return {
+        "sistema_completo": {
+            "tiempo_promedio_en_sistema": tiempo_promedio_en_sistema(
+                eventos_clientes, duracion_total_minutos),
+            "clientes_promedio_en_sistema": clientes_promedio_en_sistema(
+                eventos_clientes, duracion_total_minutos),
+            "clientes_totales_atendidos": clientes_totales_atendidos(
+                eventos_clientes, duracion_total_minutos),
+        },
+        "por_estacion": {
+            estacion["id"]: metricas_estacion(eventos_clientes, config,
+                                              estacion["id"], duracion_total_minutos)
+            for estacion in config.get("estaciones", [])
+        },
+    }
