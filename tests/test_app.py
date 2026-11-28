@@ -6,6 +6,7 @@ from streamlit.testing.v1 import AppTest
 
 from src.app import DIRECTORIO_EJEMPLOS, crear_grafica_comparacion_colas, tabla_por_estacion
 from src.config import validar_config
+from src.contrato_salida import validar_resultado
 
 
 def generar_json(app):
@@ -78,7 +79,7 @@ def test_utilizacion_del_ejemplo_secuencial_muestra_las_dos_estaciones():
 @pytest.mark.parametrize(
     "ruta", sorted(DIRECTORIO_EJEMPLOS.glob("*.json")), ids=lambda ruta: ruta.stem,
 )
-def test_ejemplo_seleccionado_se_simula_desde_la_app(ruta):
+def test_ejemplo_seleccionado_muestra_resultados_reales_desde_la_app(ruta):
     config = json.loads(ruta.read_text(encoding="utf-8"))
     app = AppTest.from_file("../src/app.py", default_timeout=15).run()
     app.selectbox(key="ejemplo_config").select(ruta.name).run()
@@ -93,10 +94,44 @@ def test_ejemplo_seleccionado_se_simula_desde_la_app(ruta):
     assert not app.exception
     assert not app.error
     resultado = app.session_state["resultado"]["resultado"]
-    eventos = resultado["eventos_clientes"]
-    assert eventos
-    assert eventos[0]["paradas"][0]["estacion_id"] == config["estaciones"][0]["id"]
-    assert resultado["duracion_total_minutos"] >= config["simulacion"]["duracion_minutos"]
+    assert resultado["eventos_clientes"]
+    assert validar_resultado(resultado, config, exigir_metricas=True) == []
+
+    metricas = resultado["metricas"]
+    sistema = metricas["sistema_completo"]
+    assert [metrica.value for metrica in app.metric[:3]] == [
+        f"{sistema['tiempo_promedio_en_sistema']:.2f} min",
+        f"{sistema['clientes_promedio_en_sistema']:.2f}",
+        str(sistema["clientes_totales_atendidos"]),
+    ]
+
+    por_estacion = metricas["por_estacion"]
+    assert list(por_estacion) == [estacion["id"] for estacion in config["estaciones"]]
+    assert list(app.dataframe[0].value.itertuples(index=False, name=None)) == [
+        (nombre, datos["tiempo_promedio_espera_cola"], datos["tiempo_promedio_atencion"],
+         datos["longitud_promedio_cola"], datos["longitud_maxima_cola"], datos["cola_mas_larga"])
+        for nombre, datos in por_estacion.items()
+    ]
+
+    porcentajes = [
+        f"{servidor['utilizacion']:.1%}"
+        for datos in por_estacion.values()
+        for servidor in datos["por_servidor"].values()
+    ]
+    assert porcentajes == [metrica.value for metrica in app.metric[3:]]
+    assert len(app.get("progress")) == len(porcentajes)
+
+    for nombre, datos in por_estacion.items():
+        if len(por_estacion) > 1:
+            app.selectbox(key="selector_estacion_colas").select(nombre).run()
+        assert not app.exception
+        figura = json.loads(app.get("plotly_chart")[0].proto.spec)
+        colas = datos["por_cola"]
+        assert [serie["x"] for serie in figura["data"]] == [list(colas), list(colas)]
+        assert [serie["y"] for serie in figura["data"]] == [
+            [cola["longitud_maxima"] for cola in colas.values()],
+            [cola["longitud_promedio"] for cola in colas.values()],
+        ]
 
 
 def test_resultados_muestran_tarjetas_tabla_colas_y_servidores_desde_la_misma_salida():
