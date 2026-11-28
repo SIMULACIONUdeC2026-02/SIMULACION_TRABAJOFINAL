@@ -12,7 +12,7 @@ _RAIZ_PROYECTO = str(Path(__file__).resolve().parents[1])
 if _RAIZ_PROYECTO not in sys.path:
     sys.path.insert(0, _RAIZ_PROYECTO)
 
-from config import validar_config  # noqa: E402
+from src.config import validar_config  # noqa: E402
 from src.engine import simular  # noqa: E402
 
 
@@ -268,6 +268,40 @@ def tabla_por_estacion(metricas: dict) -> pd.DataFrame:
         return tabla_resultante
 
 
+def mostrar_utilizacion_servidores(por_estacion: dict) -> None:
+    """Muestra la utilización por servidor de cada estación del resultado."""
+    st.subheader("Utilización por servidor")
+    if not por_estacion:
+        st.info("Aún no hay datos de utilización por servidor.")
+        return
+
+    for estacion_id, metricas_estacion in por_estacion.items():
+        st.markdown(f"**{estacion_id}**")
+        por_servidor = metricas_estacion.get("por_servidor", {})
+        if not por_servidor:
+            st.caption("Sin datos de servidores para esta estación.")
+            continue
+
+        for servidor_id, metricas_servidor in por_servidor.items():
+            utilizacion = metricas_servidor.get("utilizacion")
+            if (
+                isinstance(utilizacion, bool)
+                or not isinstance(utilizacion, (int, float))
+                or not 0 <= utilizacion <= 1
+            ):
+                st.warning(f"Utilización inválida para {estacion_id} / {servidor_id}.")
+                continue
+
+            porcentaje = f"{utilizacion:.1%}"
+            saturado = utilizacion > 0.85
+            etiqueta = f"{servidor_id}{' · SATURADO' if saturado else ''}"
+            col_metrica, col_barra = st.columns([1, 3])
+            col_metrica.metric(etiqueta, porcentaje)
+            col_barra.progress(
+                utilizacion, text="Saturado (> 85 %)" if saturado else porcentaje,
+            )
+
+
 def mostrar_resultados(resultado: dict | None = None) -> None:
     """Muestra los resultados de la simulación o vistas vacías si no hay datos."""
     if resultado is None and "resultado" in st.session_state:
@@ -290,10 +324,10 @@ def mostrar_resultados(resultado: dict | None = None) -> None:
     st.subheader("Resumen por estación")
     st.dataframe(tabla_por_estacion(metricas) if metricas else pd.DataFrame(columns=COLUMNAS_ESTACION), hide_index=True, width="stretch")
 
+    por_estacion = metricas.get("por_estacion", {})
     colas, servidores = st.columns(2)
     with colas:
         st.subheader("Comparación de colas")
-        por_estacion = metricas.get("por_estacion", {})
         if por_estacion:
             estaciones_disponibles = list(por_estacion.keys())
             if len(estaciones_disponibles) > 1:
@@ -316,10 +350,7 @@ def mostrar_resultados(resultado: dict | None = None) -> None:
             st.plotly_chart(fig_vacia)
 
     with servidores:
-        st.subheader("Utilización por servidor")
-        st.plotly_chart(
-            go.Figure().update_layout(xaxis_title="Servidor", yaxis_title="Utilización (%)"),
-        )
+        mostrar_utilizacion_servidores(por_estacion)
 
 
 def main() -> None:

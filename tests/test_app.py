@@ -19,9 +19,57 @@ def test_app_muestra_formulario_y_resultados_vacios():
     assert app.button(key="generar_configuracion")
     assert any(tab.label == "Resultados" for tab in app.tabs)
     assert app.dataframe[0].value.empty
-    assert len(app.get("plotly_chart")) == 2
+    assert len(app.get("plotly_chart")) == 1
     assert all(not json.loads(chart.proto.spec)["data"] for chart in app.get("plotly_chart"))
     assert [metric.value for metric in app.metric] == ["—", "—", "—"]
+    assert not app.get("progress")
+    assert any("no hay datos de utilización" in aviso.value for aviso in app.info)
+
+
+def test_utilizacion_muestra_porcentajes_y_marca_saturacion():
+    app = AppTest.from_file("../src/app.py", default_timeout=15).run()
+    app.session_state["resultado"] = {
+        "resultado": {
+            "metricas": {
+                "por_estacion": {
+                    "cajeros": {
+                        "por_servidor": {
+                            "servidor_1": {"utilizacion": 0.754},
+                            "servidor_2": {"utilizacion": 0.90},
+                            "servidor_3": {"utilizacion": 0.85},
+                        },
+                    },
+                },
+            },
+        },
+    }
+    app.run()
+
+    assert not app.exception
+    assert [(metrica.label, metrica.value) for metrica in app.metric[3:]] == [
+        ("servidor_1", "75.4%"),
+        ("servidor_2 · SATURADO", "90.0%"),
+        ("servidor_3", "85.0%"),
+    ]
+    assert len(app.get("progress")) == 3
+
+
+def test_utilizacion_del_ejemplo_secuencial_muestra_las_dos_estaciones():
+    ruta = (
+        Path(__file__).resolve().parents[1] / "examples" / "resultados_ejemplo"
+        / "02_secuencial_preferencial_resultado.json"
+    )
+    app = AppTest.from_file("../src/app.py", default_timeout=15).run()
+    app.session_state["resultado"] = json.loads(ruta.read_text(encoding="utf-8"))
+    app.run()
+
+    assert not app.exception
+    assert {"**triaje**", "**atencion**"} <= {elemento.value for elemento in app.markdown}
+    assert [(metrica.label, metrica.value) for metrica in app.metric[3:]] == [
+        ("servidor_1", "23.3%"),
+        ("servidor_1", "33.3%"),
+        ("servidor_2", "33.3%"),
+    ]
 
 
 def test_formulario_genera_configuracion_paralela_valida():
